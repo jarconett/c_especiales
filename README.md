@@ -10,6 +10,8 @@ imageio==2.34.0
 imageio-ffmpeg==0.4.9
 requests==2.31.0
 
+cambiar ruta ffmpeg 
+
 
 
 
