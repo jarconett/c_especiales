@@ -1,5 +1,5 @@
-streamlit==1.28.0
-pydub==0.25.1
-pandas==2.1.0
-requests==2.31.0
-ffmpeg-python==0.3.0
+streamlit
+moviepy
+pandas
+requests
+ffmpeg-python
