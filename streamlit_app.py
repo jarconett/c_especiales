@@ -13,6 +13,7 @@ import requests
 from typing import List
 import tempfile
 import os
+import time
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
 st.title("🔊 Audio splitter (.m4a) + Transcriptions search (moviepy)")
@@ -33,47 +34,45 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800) 
     n_segments = math.ceil(duration / segment_seconds)
 
     segments = []
+    progress_bar = st.progress(0, text="Preparando...")
+
+    start_time = time.time()
+
     for i in range(n_segments):
+        seg_start = time.time()
+
         start = i * segment_seconds
         end = min((i + 1) * segment_seconds, duration)
         seg_clip = clip.subclip(start, end)
-        seg_io = io.BytesIO()
-        seg_name = f"{filename.rsplit('.',1)[0]}_part{i+1}.m4a"
-        # moviepy writes to a temp file first
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
             seg_clip.write_audiofile(seg_tmp.name, codec="aac", verbose=False, logger=None)
             seg_tmp.seek(0)
             seg_bytes = open(seg_tmp.name, "rb").read()
+
+        seg_name = f"{filename.rsplit('.',1)[0]}_part{i+1}.m4a"
         segments.append({"name": seg_name, "bytes": seg_bytes})
+
+        seg_clip.close()
         os.unlink(seg_tmp.name)
+
+        # --- ETA ---
+        elapsed = time.time() - start_time
+        avg_per_segment = elapsed / (i + 1)
+        remaining = (n_segments - (i + 1)) * avg_per_segment
+        eta_min = int(remaining // 60)
+        eta_sec = int(remaining % 60)
+
+        progress_bar.progress(
+            (i + 1) / n_segments,
+            text=f"Cortando fragmento {i+1}/{n_segments} — ETA: {eta_min:02d}:{eta_sec:02d}"
+        )
+
     clip.close()
     os.unlink(tmp_path)
+    progress_bar.empty()
     return segments
-
-def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> List[dict]:
-    """Fetch .txt files from a public GitHub repo folder"""
-    m = re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
-    if not m:
-        st.error("No se pudo reconocer la URL del repositorio. Use la forma https://github.com/owner/repo")
-        return []
-    owner, repo = m.group(1), m.group(2).replace('.git','')
-    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    resp = requests.get(api_url)
-    if resp.status_code != 200:
-        st.error(f"Error fetching contents from GitHub API: {resp.status_code} - {resp.text}")
-        return []
-    files = resp.json()
-    data = []
-    for f in files:
-        if f.get('type') == 'file' and f.get('name','').lower().endswith('.txt'):
-            raw_url = f.get('download_url')
-            txt_resp = requests.get(raw_url)
-            if txt_resp.status_code == 200:
-                data.append({"name": f['name'], "content": txt_resp.text})
-    if not data:
-        st.warning("No se encontraron archivos .txt en la carpeta transcripciones del repo (o están vacíos).")
-    return data
-
+    
 def parse_transcription_text(name: str, text: str) -> pd.DataFrame:
     """Parse transcription text into speaker and text blocks"""
     pattern = re.compile(r"\[([^\]]+)\]\s*(.*?)((?=\[)|$)", re.S)
