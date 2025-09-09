@@ -5,7 +5,7 @@ from typing import List
 import os
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
-st.title("🔊 Audio splitter (.m4a) + Transcriptions search (moviepy)")
+st.title("🔊 A ganar billete 💵 💶 💴")
 
 # --- Helper functions ---
 
