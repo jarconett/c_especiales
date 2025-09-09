@@ -1,10 +1,9 @@
-# Core
-streamlit==1.26.0
-
-# Data
-numpy==1.26.4
-pandas==2.0.3  # 2.0.x funciona perfectamente con Python 3.11 y evita compilación desde fuente
-Pillow>=10.0.0
-# Optional for plotting
+streamlit==1.26.1
+numpy==1.25.2
+pandas==2.0.3
 matplotlib==3.8.1
 plotly==5.17.0
+moviepy==1.0.3
+imageio==2.34.0
+imageio-ffmpeg==0.4.9
+requests==2.31.0
