@@ -139,7 +139,7 @@ def color_speaker_row(row):
     elif speaker == "nacho":
         return ["background-color: salmon"]*len(row)
     elif speaker == "lala":
-        return ["background-color: lightblue"]*len(row)
+        return ["background-color: #FF8C00"]*len(row)
     else:
         return [""]*len(row)
 
@@ -241,7 +241,7 @@ if 'trans_df' in st.session_state:
                     <div style="display:flex; gap:1em; align-items:center; margin-bottom:1em;">
                         <div style="background-color:mediumslateblue; padding:4px 10px; border-radius:4px;">Eva</div>
                         <div style="background-color:salmon; padding:4px 10px; border-radius:4px;">Nacho</div>
-                        <div style="background-color:lightblue; padding:4px 10px; border-radius:4px;">Lala</div>
+                        <div style="background-color:#FF8C00; padding:4px 10px; border-radius:4px;">Lala</div>
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -257,7 +257,7 @@ if 'trans_df' in st.session_state:
                     elif row['speaker'].lower() == "nacho":
                         color = "background-color: salmon"
                     elif row['speaker'].lower() == "lala":
-                        color = "background-color: lightblue"
+                        color = "background-color: #FF8C00"
                     with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})"):
                         st.markdown(f"<div style='{color}; padding:0.5em; border-radius:6px;'>{row['text']}</div>",
                                     unsafe_allow_html=True)
