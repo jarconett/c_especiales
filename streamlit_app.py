@@ -227,4 +227,4 @@ else:
     st.info("Construye primero el DataFrame de transcripciones para poder buscar.")
 
 st.markdown("---")
-st.caption("Hecho con ❤️ — sube un audio .m4a para dividirlo y apunta a tu repo público con carpeta `transcripciones` para buscar en los textos.")
+st.caption("sube un audio .m4a para dividirlo y apunta a tu repo público con carpeta `transcripciones` para buscar en los textos.")
