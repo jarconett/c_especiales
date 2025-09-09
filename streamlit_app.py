@@ -1,60 +1,56 @@
 import streamlit as st
-from moviepy.editor import AudioFileClip
 import pandas as pd
 import requests
-from io import BytesIO
 import os
+from io import BytesIO
+import subprocess
 
-st.set_page_config(page_title="Audio Split & Transcription Search", layout="wide")
+st.title("Cortar audio .m4a y buscar en transcripciones")
 
-st.title("Cortar audio y buscar en transcripciones")
-
-# -------------------------------
-# 1️⃣ Subida de audio y corte
-# -------------------------------
+# Subida de archivo
 uploaded_file = st.file_uploader("Sube tu archivo .m4a", type=["m4a"])
-
 if uploaded_file:
-    st.audio(uploaded_file, format="audio/m4a")
-    audio = AudioFileClip(uploaded_file.name) if hasattr(uploaded_file, "name") else AudioFileClip(BytesIO(uploaded_file.read()))
-    duration_min = audio.duration / 60
-    st.write(f"Duración del audio: {duration_min:.2f} minutos")
+    audio_path = f"temp_audio.m4a"
+    with open(audio_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    st.audio(audio_path, format="audio/m4a")
 
-    # Duración de fragmento
-    chunk_duration_min = 30
-    chunk_duration_sec = chunk_duration_min * 60
-    chunks = int(audio.duration // chunk_duration_sec) + 1
+    # Duración total usando ffmpeg
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "format=duration", "-of",
+         "default=noprint_wrappers=1:nokey=1", audio_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT
+    )
+    duration_sec = float(result.stdout)
+    st.write(f"Duración del audio: {duration_sec/60:.2f} minutos")
 
-    st.write(f"El audio se dividirá en {chunks} fragmentos de {chunk_duration_min} minutos aproximadamente.")
-
-    # Carpeta temporal
+    # Dividir en fragmentos de 30 min
+    chunk_dur = 30*60
     os.makedirs("chunks", exist_ok=True)
-    download_links = []
+    num_chunks = int(duration_sec//chunk_dur) + 1
 
-    for i in range(chunks):
-        start = i * chunk_duration_sec
-        end = min((i + 1) * chunk_duration_sec, audio.duration)
-        chunk = audio.subclip(start, end)
-        filename = f"chunks/chunk_{i+1}.m4a"
-        chunk.write_audiofile(filename, codec="aac", verbose=False, logger=None)
-        download_links.append(filename)
+    for i in range(num_chunks):
+        start = i*chunk_dur
+        end = min((i+1)*chunk_dur, duration_sec)
+        output_file = f"chunks/chunk_{i+1}.m4a"
+        subprocess.run([
+            "ffmpeg", "-y", "-i", audio_path,
+            "-ss", str(start), "-to", str(end),
+            "-c", "copy", output_file
+        ])
+        with open(output_file, "rb") as f:
+            st.download_button(f"Descargar {os.path.basename(output_file)}", f.read(), file_name=os.path.basename(output_file), mime="audio/m4a")
 
-    st.success("Fragmentos generados:")
-    for file in download_links:
-        with open(file, "rb") as f:
-            st.download_button(f"Descargar {os.path.basename(file)}", f.read(), file_name=os.path.basename(file), mime="audio/m4a")
-
-# -------------------------------
-# 2️⃣ Leer transcripciones desde GitHub
-# -------------------------------
-GITHUB_RAW_URL = "https://raw.githubusercontent.com/<usuario>/<repositorio>/main/transcripciones/"  # Cambiar según tu repo
+# Leer transcripciones
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/<usuario>/<repositorio>/main/transcripciones/"
+files_list = ["file1.txt","file2.txt"]
 
 def get_transcriptions():
-    files_list = ["file1.txt", "file2.txt"]  # Lista de archivos, o se puede hacer scrape dinámico
     data = []
     for fname in files_list:
-        url = GITHUB_RAW_URL + fname
-        r = requests.get(url)
+        r = requests.get(GITHUB_RAW_URL + fname)
         if r.status_code == 200:
             lines = r.text.splitlines()
             orador = None
@@ -64,21 +60,16 @@ def get_transcriptions():
                     orador = line[1:-1]
                 elif line:
                     data.append({"orador": orador, "texto": line})
-    df = pd.DataFrame(data)
-    return df
+    return pd.DataFrame(data)
 
 st.subheader("Transcripciones")
 df = get_transcriptions()
 st.dataframe(df)
 
-# -------------------------------
-# 3️⃣ Búsqueda de palabras o frases
-# -------------------------------
+# Búsqueda
 st.subheader("Buscar en transcripciones")
-query = st.text_input("Escribe palabra o frase a buscar:")
-
+query = st.text_input("Palabra o frase:")
 if query:
-    mask = df["texto"].str.contains(query, case=False, na=False)
-    results = df[mask]
+    results = df[df["texto"].str.contains(query, case=False, na=False)]
     st.write(f"Se encontraron {len(results)} coincidencias:")
     st.dataframe(results)
