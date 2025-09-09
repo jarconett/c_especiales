@@ -1,5 +1,10 @@
-streamlit>=1.28,<2.0
-pandas>=2.0,<2.2
-requests>=2.31,<2.32
-imageio>=2.31,<3.0
-imageio-ffmpeg>=0.4.10
+# Core
+streamlit==1.26.0
+
+# Data
+numpy==1.26.1
+pandas==2.0.3  # 2.0.x funciona perfectamente con Python 3.11 y evita compilación desde fuente
+
+# Optional for plotting
+matplotlib==3.8.1
+plotly==5.17.0
