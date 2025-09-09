@@ -1,5 +1,6 @@
-streamlit
-moviepy
-pandas
-requests
-ffmpeg-python
+streamlit==1.28.0
+moviepy==2.0.0
+pandas==2.1.0
+requests==2.31.0
+imageio==2.31.3
+imageio-ffmpeg==0.4.10
