@@ -196,7 +196,7 @@ with col2:
 st.markdown("---")
 
 # --- UI: Transcriptions loader ---
-st.header("2) Leer transcripciones (GitHub o .txt)")
+st.header("2) Leer transcripciones")
 repo_col, upload_col = st.columns(2)
 
 with repo_col:
@@ -218,18 +218,18 @@ with repo_col:
                 st.session_state['trans_files'] = files
                 st.success(f"Cargados {len(files)} archivos desde GitHub")
 
-with upload_col:
-    uploaded_txts = st.file_uploader("O sube archivos .txt", type=['txt'], accept_multiple_files=True)
-    if uploaded_txts:
-        files = []
-        for f in uploaded_txts:
-            try:
-                txt = f.read().decode('utf-8')
-            except:
-                txt = f.read().decode('latin-1')
-            files.append({"name": f.name, "content": txt})
-        st.session_state['trans_files'] = files
-        st.success(f"Se han cargado {len(files)} archivos .txt")
+#with upload_col:
+#    uploaded_txts = st.file_uploader("O sube archivos .txt", type=['txt'], accept_multiple_files=True)
+#    if uploaded_txts:
+#        files = []
+#        for f in uploaded_txts:
+#            try:
+#                txt = f.read().decode('utf-8')
+#            except:
+#                txt = f.read().decode('latin-1')
+#            files.append({"name": f.name, "content": txt})
+#        st.session_state['trans_files'] = files
+#        st.success(f"Se han cargado {len(files)} archivos .txt")
 
 # Build DataFrame
 if 'trans_files' in st.session_state:
