@@ -161,8 +161,6 @@ with col1:
 with col2:
     st.markdown("""
     **Consejos**:
-    - Los archivos WAV pueden ser grandes.
-    - MoviePy maneja bien .m4a sin depender de pyaudioop.
     - [Cortar audio online](https://mp3cut.net/es)
     - [Transcripción automática](https://turboscribe.ai/)
     """, unsafe_allow_html=True)
