@@ -3,3 +3,4 @@ pydub
 pandas
 requests
 ffmpeg-python
+pyaudioop
