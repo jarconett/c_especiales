@@ -4,7 +4,7 @@ streamlit==1.26.0
 # Data
 numpy==1.26.4
 pandas==2.0.3  # 2.0.x funciona perfectamente con Python 3.11 y evita compilación desde fuente
-
+Pillow>=10.0.0
 # Optional for plotting
 matplotlib==3.8.1
 plotly==5.17.0
