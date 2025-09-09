@@ -12,7 +12,7 @@ requests==2.31.0
 
 cambiar ruta ffmpeg 
 
-
+pip install moviepy==1.0.3
 
 
  python -m streamlit run C:\Users\Javier\Desktop\c_especiales\streamlit_app.py
