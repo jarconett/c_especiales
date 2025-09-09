@@ -135,7 +135,7 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False) -
 def color_speaker_row(row):
     speaker = row["speaker"].strip().lower()
     if speaker == "eva":
-        return ["background-color: palegreen"]*len(row)
+        return ["background-color: mediumslateblue"]*len(row)
     elif speaker == "nacho":
         return ["background-color: salmon"]*len(row)
     elif speaker == "lala":
@@ -239,7 +239,7 @@ if 'trans_df' in st.session_state:
                 # Leyenda colores
                 st.markdown("""
                     <div style="display:flex; gap:1em; align-items:center; margin-bottom:1em;">
-                        <div style="background-color:palegreen; padding:4px 10px; border-radius:4px;">Eva</div>
+                        <div style="background-color:mediumslateblue; padding:4px 10px; border-radius:4px;">Eva</div>
                         <div style="background-color:salmon; padding:4px 10px; border-radius:4px;">Nacho</div>
                         <div style="background-color:lightblue; padding:4px 10px; border-radius:4px;">Lala</div>
                     </div>
@@ -253,7 +253,7 @@ if 'trans_df' in st.session_state:
                 for i, row in res.iterrows():
                     color = ""
                     if row['speaker'].lower() == "eva":
-                        color = "background-color: palegreen"
+                        color = "background-color: mediumslateblue"
                     elif row['speaker'].lower() == "nacho":
                         color = "background-color: salmon"
                     elif row['speaker'].lower() == "lala":
