@@ -2,7 +2,7 @@
 streamlit==1.26.0
 
 # Data
-numpy==1.26.1
+numpy==1.25.2
 pandas==2.0.3  # 2.0.x funciona perfectamente con Python 3.11 y evita compilación desde fuente
 
 # Optional for plotting
