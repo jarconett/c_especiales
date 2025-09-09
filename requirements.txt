@@ -1,6 +1,5 @@
-streamlit
-pydub
-pandas
-requests
-ffmpeg-python
-pyaudioop
+streamlit==1.28.0
+pydub==0.26.1
+pandas==2.1.0
+requests==2.31.0
+ffmpeg-python==0.3.0
