@@ -1,86 +1,57 @@
 """
 Streamlit app: split .m4a audio into 30-minute chunks + build/search transcriptions
-
-Usage notes:
-- Requires: streamlit, pydub, pandas, requests
-- pydub requires ffmpeg available in the environment (Streamlit Cloud usually has it; if not, install via apt or include a buildpack).
-- The app supports:
-    * Uploading a .m4a (or other audio) file which will be split into 30-minute segments (1800s). Segments are offered as downloads.
-    * Pointing to a public GitHub repo containing a folder `transcripciones` (or uploading multiple .txt files) — the app reads all .txt files, merges into a DataFrame, extracts speaker labels in square brackets and the following text.
-    * Searching the merged transcriptions (substring or regex, case-insensitive), showing matches, their speaker, file and surrounding context.
-
-Drop the file into Streamlit Cloud repo, or deploy this file as `streamlit_app.py` in your Streamlit Cloud project.
+Adapted to use moviepy instead of pydub to avoid pyaudioop issues in Python 3.13+
 """
 
 import streamlit as st
-from pydub import AudioSegment
+from moviepy.editor import AudioFileClip
 import io
 import math
 import pandas as pd
 import re
 import requests
 from typing import List
+import tempfile
+import os
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
-
-st.title("🔊 Audio splitter (.m4a) + Transcriptions search")
+st.title("🔊 Audio splitter (.m4a) + Transcriptions search (moviepy)")
 
 # --- Helper functions ---
 
 def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800) -> List[dict]:
-    """Split an audio file given as bytes into segments of segment_seconds.
-    Returns list of dicts: {"name": ..., "bytes": ...}
-    Attempts to preserve format; falls back to WAV if needed.
     """
-    audio_file = io.BytesIO(audio_bytes)
-    # try to detect format from filename
-    fmt = None
-    if filename and "." in filename:
-        fmt = filename.rsplit('.', 1)[1].lower()
+    Split an audio file (bytes) into segments of segment_seconds using moviepy.
+    Returns list of dicts: {"name": ..., "bytes": ...}
+    """
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
+        tmpfile.write(audio_bytes)
+        tmp_path = tmpfile.name
 
-    try:
-        # pydub can detect format from file content if format None
-        audio = AudioSegment.from_file(audio_file, format=fmt)
-    except Exception as e:
-        st.error(f"Error loading audio file with pydub: {e}")
-        return []
-
-    duration_ms = len(audio)
-    segment_ms = segment_seconds * 1000
-    n_segments = math.ceil(duration_ms / segment_ms)
+    clip = AudioFileClip(tmp_path)
+    duration = clip.duration  # in seconds
+    n_segments = math.ceil(duration / segment_seconds)
 
     segments = []
     for i in range(n_segments):
-        start = i * segment_ms
-        end = min((i + 1) * segment_ms, duration_ms)
-        seg = audio[start:end]
+        start = i * segment_seconds
+        end = min((i + 1) * segment_seconds, duration)
+        seg_clip = clip.subclip(start, end)
         seg_io = io.BytesIO()
-        # try to export with same extension if known and supported, else wav
-        export_format = None
-        if fmt in ("mp3", "wav", "ogg", "flv", "raw", "wma", "aac", "m4a"):
-            export_format = fmt
-        else:
-            export_format = "wav"
-        try:
-            seg.export(seg_io, format=export_format)
-        except Exception:
-            # fallback
-            seg_io = io.BytesIO()
-            seg.export(seg_io, format="wav")
-            export_format = "wav"
-        seg_io.seek(0)
-        seg_name = f"{filename.rsplit('.',1)[0]}_part{i+1}.{export_format}"
-        segments.append({"name": seg_name, "bytes": seg_io.read()})
+        seg_name = f"{filename.rsplit('.',1)[0]}_part{i+1}.m4a"
+        # moviepy writes to a temp file first
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
+            seg_clip.write_audiofile(seg_tmp.name, codec="aac", verbose=False, logger=None)
+            seg_tmp.seek(0)
+            seg_bytes = open(seg_tmp.name, "rb").read()
+        segments.append({"name": seg_name, "bytes": seg_bytes})
+        os.unlink(seg_tmp.name)
+    clip.close()
+    os.unlink(tmp_path)
     return segments
 
-
 def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> List[dict]:
-    """Given a GitHub repo URL like https://github.com/owner/repo (optionally with .git)
-    fetch the list of files under `path` using the GitHub API and download .txt files.
-    Returns list of {"name":..., "content":...}
-    Works for public repos. If access fails, returns empty list and sets st.error.
-    """
-    # parse owner/repo
+    """Fetch .txt files from a public GitHub repo folder"""
     m = re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
     if not m:
         st.error("No se pudo reconocer la URL del repositorio. Use la forma https://github.com/owner/repo")
@@ -103,28 +74,20 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
         st.warning("No se encontraron archivos .txt en la carpeta transcripciones del repo (o están vacíos).")
     return data
 
-
 def parse_transcription_text(name: str, text: str) -> pd.DataFrame:
-    """Parse a single transcription text into rows with speaker and text.
-    Looks for patterns like [Speaker] line... and also handles multiple blocks per file.
-    Returns DataFrame with columns: file, speaker, text, block_index
-    """
-    # We'll find all occurrences of [Speaker] followed by some text until next [ or EOF
+    """Parse transcription text into speaker and text blocks"""
     pattern = re.compile(r"\[([^\]]+)\]\s*(.*?)((?=\[)|$)", re.S)
     rows = []
     for idx, m in enumerate(pattern.finditer(text)):
         speaker = m.group(1).strip()
         content = m.group(2).strip().replace('\r\n','\n')
-        # collapse excess whitespace but preserve sentence breaks
         content = re.sub(r"\n+", " ", content)
         content = re.sub(r"\s+", " ", content).strip()
         rows.append({"file": name, "speaker": speaker, "text": content, "block_index": idx})
-    # If no matches, fallback: whole file as unknown speaker
     if not rows:
         cleaned = re.sub(r"\s+", " ", text).strip()
         rows.append({"file": name, "speaker": "UNKNOWN", "text": cleaned, "block_index": 0})
     return pd.DataFrame(rows)
-
 
 def build_transcriptions_dataframe(files: List[dict]) -> pd.DataFrame:
     dfs = []
@@ -136,10 +99,9 @@ def build_transcriptions_dataframe(files: List[dict]) -> pd.DataFrame:
     else:
         return pd.DataFrame(columns=["file","speaker","text","block_index"])
 
-
 def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False) -> pd.DataFrame:
     if df.empty or not query:
-        return pd.DataFrame(columns=["file","speaker","text","block_index","match_preview"]) 
+        return pd.DataFrame(columns=["file","speaker","text","block_index","match_preview"])
     results = []
     flags = re.IGNORECASE
     for _, row in df.iterrows():
@@ -154,9 +116,8 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False) -
             st.error("Expresión regular inválida")
             return pd.DataFrame()
     if not results:
-        return pd.DataFrame(columns=["file","speaker","text","block_index","match_preview"]) 
+        return pd.DataFrame(columns=["file","speaker","text","block_index","match_preview"])
     res_df = pd.DataFrame(results)
-    # add a preview with highlighted match (simple) — here we return a snippet
     def make_preview(text):
         idx = text.lower().find(query.lower()) if not use_regex else None
         if idx is None and use_regex:
@@ -174,12 +135,11 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False) -
     res_df['match_preview'] = res_df['text'].apply(make_preview)
     return res_df[['file','speaker','text','block_index','match_preview']]
 
-
 # --- UI: Audio splitting ---
 st.header("1) Cortar audio (.m4a) en fragmentos de 30 minutos")
 col1, col2 = st.columns([2,1])
 with col1:
-    uploaded = st.file_uploader("Sube un archivo de audio (.m4a, .mp3, etc.)", type=["m4a","mp3","wav","ogg","flac"], accept_multiple_files=False)
+    uploaded = st.file_uploader("Sube un archivo de audio (.m4a, .mp3, .wav, etc.)", type=["m4a","mp3","wav","ogg","flac"], accept_multiple_files=False)
     segment_minutes = st.number_input("Duración de cada fragmento (minutos)", min_value=1, max_value=180, value=30)
     if uploaded:
         if st.button("Procesar audio y generar fragmentos"):
@@ -191,10 +151,10 @@ with col1:
                 for seg in segments:
                     st.download_button(label=f"Descargar {seg['name']}", data=seg['bytes'], file_name=seg['name'])
             else:
-                st.error("No se generaron fragmentos. Revisa el archivo o los códecs (ffmpeg).")
+                st.error("No se generaron fragmentos. Revisa el archivo o los códecs.")
 
 with col2:
-    st.markdown("**Consejos**:\n- Si la descarga no funciona, intenta exportar a WAV o MP3.\n- pydub necesita ffmpeg; en Streamlit Cloud normalmente ya está disponible.\n- Los archivos WAV pueden ser grandes.")
+    st.markdown("**Consejos**:\n- Los archivos WAV pueden ser grandes.\n- MoviePy maneja bien .m4a sin depender de pyaudioop.")
 
 st.markdown("---")
 
@@ -204,7 +164,7 @@ repo_col, upload_col = st.columns(2)
 with repo_col:
     gh_url = st.text_input("(Opcional) URL del repositorio público en GitHub (ej: https://github.com/owner/repo)", value="")
     if gh_url:
-        if st.button("Cargar archivos .txt desde GitHub" , key="gh_load"):
+        if st.button("Cargar archivos .txt desde GitHub", key="gh_load"):
             with st.spinner("Leyendo archivos desde GitHub..."):
                 files = read_txt_files_from_github(gh_url, path="transcripciones")
                 if files:
@@ -219,15 +179,13 @@ with upload_col:
             try:
                 txt = f.read().decode('utf-8')
             except Exception:
-                # try latin-1
                 txt = f.read().decode('latin-1')
             files.append({"name": f.name, "content": txt})
         st.session_state['trans_files'] = files
         st.success(f"Se han cargado {len(files)} archivos .txt")
 
-# Build dataframe if files exist in session_state
+# Build dataframe
 if 'trans_files' in st.session_state:
-    st.subheader("Transcripciones cargadas")
     files = st.session_state['trans_files']
     if files:
         if st.button("Construir DataFrame de transcripciones", key='build_df'):
@@ -260,9 +218,7 @@ if 'trans_df' in st.session_state:
                 st.warning("No se encontraron coincidencias.")
             else:
                 st.success(f"Encontradas {len(res)} coincidencias")
-                # show results with preview and allow filtering by file
                 st.dataframe(res[['file','speaker','match_preview']])
-                # expand individual result
                 for i, row in res.iterrows():
                     with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})"):
                         st.write(row['text'])
@@ -271,4 +227,4 @@ else:
     st.info("Construye primero el DataFrame de transcripciones para poder buscar.")
 
 st.markdown("---")
-st.caption("Hecho con ❤️ — sube un audio .m4a para dividirlo y apunta a tu repo público con carpeta `transcripciones` para buscar en los textos. Ajusta la lógica de parsing según el formato exacto de tus transcripciones.")
+st.caption("Hecho con ❤️ — sube un audio .m4a para dividirlo y apunta a tu repo público con carpeta `transcripciones` para buscar en los textos.")
