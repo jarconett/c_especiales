@@ -2,5 +2,5 @@ streamlit>=1.28,<2.0
 moviepy>=2.0,<2.1
 pandas>=2.1,<2.2
 requests>=2.31,<2.32
-imageio>=2.31,<2.32
-imageio-ffmpeg>=0.4.10,<0.5
+imageio>=2.31,<3.0
+imageio-ffmpeg>=0.5
