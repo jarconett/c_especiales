@@ -28,7 +28,7 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800) 
         seg_clip = clip.subclip(start, end)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
-            seg_clip.write_audiofile(seg_tmp.name, codec="aac", verbose=False, logger=None)
+            seg_clip.write_audiofile(seg_tmp.name, codec="aac", verbose=True, logger="bar")
             seg_tmp.seek(0)
             seg_bytes = open(seg_tmp.name, "rb").read()
 
