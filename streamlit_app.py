@@ -186,7 +186,7 @@ with col1:
 
 with col2:
     st.markdown("""
-    **Consejos**:
+    **Importante**:
     - [Programas ivoox](https://www.ivoox.com/podcast-cuerpos-especiales_sq_f11345962_1.html)
     - [Cortar audio online](https://mp3cut.net/es)
     - [Transcripción automática](https://turboscribe.ai/)
