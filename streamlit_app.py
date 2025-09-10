@@ -3,6 +3,7 @@ from moviepy.editor import AudioFileClip
 import io, math, pandas as pd, re, requests, tempfile, os, time
 from typing import List
 import os
+import base64
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
 st.title("💰🔊 A ganar billete 💵 💶 💴")
