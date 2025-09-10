@@ -50,33 +50,74 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
     os.unlink(tmp_path)
     return segments
 
+def _get_github_headers():
+    # Prefer st.secrets (Streamlit Cloud). Fallback a la variable de entorno.
+    token = None
+    try:
+        token = st.secrets.get("GITHUB_TOKEN")
+    except Exception:
+        token = None
+    if not token:
+        token = os.getenv("GITHUB_TOKEN")
+    headers = {}
+    if token:
+        headers["Authorization"] = f"token {token}"
+    # pedir contenido en JSON (por defecto)
+    headers["Accept"] = "application/vnd.github.v3+json"
+    return headers
+
 def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> List[dict]:
-    """Fetch .txt files from GitHub folder usando API oficial"""
-    m = re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
-    if not m:
-        st.error("URL de repo no válida")
+    """
+    Lee .txt desde un repo de GitHub usando la API.
+    repo_url: https://github.com/owner/repo  (o owner/repo)
+    Devuelve: list of {"name": ..., "content": ...}
+    """
+    # Normalizar repo input: puede venir como "https://github.com/owner/repo/" o "owner/repo"
+    m = None
+    if repo_url.count("/") == 1 and "/" in repo_url:  # "owner/repo"
+        owner_repo = repo_url
+    else:
+        import re as _re
+        m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
+        if not m:
+            st.error("URL de repo no válida. Usa forma https://github.com/owner/repo o owner/repo")
+            return []
+        owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
+    
+    headers = _get_github_headers()
+    api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
+    resp = requests.get(api_url, headers=headers)
+    
+    if resp.status_code == 403:
+        # revisar límites o permisos
+        msg = resp.json().get("message", "")
+        remaining = resp.headers.get("X-RateLimit-Remaining")
+        if remaining is not None and remaining == "0":
+            st.error("Límite de peticiones GitHub alcanzado. Añade un token en Streamlit Secrets para aumentar el límite.")
+        else:
+            st.error(f"Acceso denegado (403). Mensaje GitHub: {msg}")
         return []
-    owner, repo = m.group(1), m.group(2).replace('.git','')
-
-    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    resp = requests.get(api_url)
-
     if resp.status_code != 200:
-        st.error(f"Error fetching GitHub contents: {resp.status_code}")
+        st.error(f"Error fetching GitHub contents: {resp.status_code} - {resp.text}")
         return []
-
-    files = resp.json()
+    
+    items = resp.json()
     data = []
-    for f in files:
-        if f.get('type') == 'file' and f.get('name', '').lower().endswith('.txt'):
-            # La API devuelve el contenido en base64 si le pedimos "raw"
-            file_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}/{f['name']}"
-            txt_resp = requests.get(file_url)
-            if txt_resp.status_code == 200:
-                file_info = txt_resp.json()
-                import base64
-                content = base64.b64decode(file_info["content"]).decode("utf-8", errors="ignore")
+    for f in items:
+        if f.get("type") == "file" and f.get("name","").lower().endswith(".txt"):
+            file_api = f"https://api.github.com/repos/{owner_repo}/contents/{path}/{f['name']}"
+            file_resp = requests.get(file_api, headers=headers)
+            if file_resp.status_code == 200:
+                file_info = file_resp.json()
+                # content viene en base64
+                try:
+                    content_bytes = base64.b64decode(file_info.get("content", ""))
+                    content = content_bytes.decode("utf-8", errors="ignore")
+                except Exception:
+                    content = ""
                 data.append({"name": f['name'], "content": content})
+            else:
+                st.warning(f"No se pudo descargar {f['name']}: {file_resp.status_code}")
     if not data:
         st.warning("No se encontraron archivos .txt en la carpeta transcripciones/")
     return data
