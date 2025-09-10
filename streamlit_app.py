@@ -51,28 +51,36 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
     return segments
 
 def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> List[dict]:
-    """Fetch .txt files from GitHub folder"""
+    """Fetch .txt files from GitHub folder usando API oficial"""
     m = re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
     if not m:
         st.error("URL de repo no válida")
         return []
     owner, repo = m.group(1), m.group(2).replace('.git','')
+
     api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
     resp = requests.get(api_url)
+
     if resp.status_code != 200:
         st.error(f"Error fetching GitHub contents: {resp.status_code}")
         return []
+
     files = resp.json()
     data = []
     for f in files:
-        if f.get('type')=='file' and f.get('name','').lower().endswith('.txt'):
-            raw_url = f.get('download_url')
-            txt_resp = requests.get(raw_url)
+        if f.get('type') == 'file' and f.get('name', '').lower().endswith('.txt'):
+            # La API devuelve el contenido en base64 si le pedimos "raw"
+            file_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}/{f['name']}"
+            txt_resp = requests.get(file_url)
             if txt_resp.status_code == 200:
-                data.append({"name": f['name'], "content": txt_resp.text})
+                file_info = txt_resp.json()
+                import base64
+                content = base64.b64decode(file_info["content"]).decode("utf-8", errors="ignore")
+                data.append({"name": f['name'], "content": content})
     if not data:
         st.warning("No se encontraron archivos .txt en la carpeta transcripciones/")
     return data
+
 
 def parse_transcription_text(name: str, text: str) -> pd.DataFrame:
     pattern = re.compile(r"\[([^\]]+)\]\s*(.*?)((?=\[)|$)", re.S)
