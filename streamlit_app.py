@@ -192,11 +192,14 @@ def color_speaker_row(row):
     else:
         return [""]*len(row)
 # --- NUEVA FUNCIÓN: Mostrar todas las transcripciones con un bloque resaltado ---
-def show_full_transcriptions(df, highlight_file=None, highlight_index=None):
+def show_full_transcriptions(highlight_file=None, highlight_index=None):
+    if 'trans_df' not in st.session_state:
+        st.warning("Primero debes construir el DataFrame de transcripciones.")
+        return
+    df = st.session_state['trans_df']
+
     for _, row in df.iterrows():
-        # Marcar cuál expander abrir
         open_expander = (row['file'] == highlight_file and row['block_index'] == highlight_index)
-        # Color especial si es el bloque seleccionado
         color = "background-color: yellow" if open_expander else ""
         with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=open_expander):
             st.markdown(
@@ -353,5 +356,5 @@ if 'trans_df' in st.session_state:
                         st.markdown(f"<div style='{color}; padding:0.5em; border-radius:6px;'>{row['text']}</div>",
                                     unsafe_allow_html=True)
                         if st.button(f"📌 Ver en contexto ({row['file']} bloque {row['block_index']})", key=f"ctx-{i}"):
-                            st.subheader("Contexto en transcripciones completas")
-                            show_full_transcriptions(df, highlight_file=row['file'], highlight_index=row['block_index'])
+                            st.session_state['highlight'] = (row['file'], row['block_index'])
+                            st.experimental_rerun()
