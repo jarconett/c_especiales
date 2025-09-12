@@ -191,6 +191,19 @@ def color_speaker_row(row):
         return ["background-color: #FF8C00"]*len(row)
     else:
         return [""]*len(row)
+# --- NUEVA FUNCIÓN: Mostrar todas las transcripciones con un bloque resaltado ---
+def show_full_transcriptions(df, highlight_file=None, highlight_index=None):
+    for _, row in df.iterrows():
+        # Marcar cuál expander abrir
+        open_expander = (row['file'] == highlight_file and row['block_index'] == highlight_index)
+        # Color especial si es el bloque seleccionado
+        color = "background-color: yellow" if open_expander else ""
+        with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=open_expander):
+            st.markdown(
+                f"<div style='{color}; padding:0.5em; border-radius:6px;'>{row['text']}</div>",
+                unsafe_allow_html=True
+            )
+
 
 # --- UI: Audio splitting ---
 st.header("1) Cortar audio (.m4a) en fragmentos de 30 minutos")
@@ -339,3 +352,6 @@ if 'trans_df' in st.session_state:
                     with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})"):
                         st.markdown(f"<div style='{color}; padding:0.5em; border-radius:6px;'>{row['text']}</div>",
                                     unsafe_allow_html=True)
+                        if st.button(f"📌 Ver en contexto ({row['file']} bloque {row['block_index']})", key=f"ctx-{i}"):
+                            st.subheader("Contexto en transcripciones completas")
+                            show_full_transcriptions(df, highlight_file=row['file'], highlight_index=row['block_index'])
