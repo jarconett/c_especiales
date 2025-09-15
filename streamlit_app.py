@@ -15,16 +15,12 @@ FFMPEG_BIN = r"C:\Users\Javier\Downloads\ffmpeg.exe"
 os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_BIN  # MoviePy usa imageio-ffmpeg
 
 def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
-    """
-    Divide un archivo de audio en segmentos de segment_seconds usando MoviePy.
-    Retorna lista de dicts: {"name": ..., "bytes": ...}
-    """
     with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
         tmpfile.write(audio_bytes)
         tmp_path = tmpfile.name
 
     clip = AudioFileClip(tmp_path)
-    duration = clip.duration  # segundos
+    duration = clip.duration
     n_segments = math.ceil(duration / segment_seconds)
     segments = []
 
@@ -38,8 +34,8 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
             seg_clip.write_audiofile(
                 seg_tmp.name,
                 codec="aac",
-                verbose=True,     # muestra progreso
-                logger=None       # evita problemas con stdout en Python 3.13
+                verbose=True,
+                logger=None
             )
             seg_tmp.seek(0)
             seg_bytes = open(seg_tmp.name, "rb").read()
@@ -52,7 +48,6 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
     return segments
 
 def _get_github_headers():
-    # Prefer st.secrets (Streamlit Cloud). Fallback a la variable de entorno.
     token = None
     try:
         token = st.secrets.get("GITHUB_TOKEN")
@@ -63,25 +58,17 @@ def _get_github_headers():
     headers = {}
     if token:
         headers["Authorization"] = f"token {token}"
-    # pedir contenido en JSON (por defecto)
     headers["Accept"] = "application/vnd.github.v3+json"
     return headers
 
 def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> List[dict]:
-    """
-    Lee .txt desde un repo de GitHub usando la API.
-    repo_url: https://github.com/owner/repo  (o owner/repo)
-    Devuelve: list of {"name": ..., "content": ...}
-    """
-    # Normalizar repo input: puede venir como "https://github.com/owner/repo/" o "owner/repo"
-    m = None
-    if repo_url.count("/") == 1 and "/" in repo_url:  # "owner/repo"
+    if repo_url.count("/") == 1 and "/" in repo_url:
         owner_repo = repo_url
     else:
         import re as _re
         m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
         if not m:
-            st.error("URL de repo no válida. Usa forma https://github.com/owner/repo o owner/repo")
+            st.error("URL de repo no válida.")
             return []
         owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
     
@@ -89,15 +76,6 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
     api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
     resp = requests.get(api_url, headers=headers)
     
-    if resp.status_code == 403:
-        # revisar límites o permisos
-        msg = resp.json().get("message", "")
-        remaining = resp.headers.get("X-RateLimit-Remaining")
-        if remaining is not None and remaining == "0":
-            st.error("Límite de peticiones GitHub alcanzado. Añade un token en Streamlit Secrets para aumentar el límite.")
-        else:
-            st.error(f"Acceso denegado (403). Mensaje GitHub: {msg}")
-        return []
     if resp.status_code != 200:
         st.error(f"Error fetching GitHub contents: {resp.status_code} - {resp.text}")
         return []
@@ -110,19 +88,13 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
             file_resp = requests.get(file_api, headers=headers)
             if file_resp.status_code == 200:
                 file_info = file_resp.json()
-                # content viene en base64
                 try:
                     content_bytes = base64.b64decode(file_info.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
                 except Exception:
                     content = ""
                 data.append({"name": f['name'], "content": content})
-            else:
-                st.warning(f"No se pudo descargar {f['name']}: {file_resp.status_code}")
-    if not data:
-        st.warning("No se encontraron archivos .txt en la carpeta transcripciones/")
     return data
-
 
 def parse_transcription_text(name: str, text: str) -> pd.DataFrame:
     pattern = re.compile(r"\[([^\]]+)\]\s*(.*?)((?=\[)|$)", re.S)
@@ -191,27 +163,10 @@ def color_speaker_row(row):
         return ["background-color: #FF8C00"]*len(row)
     else:
         return [""]*len(row)
-# --- NUEVA FUNCIÓN: Mostrar todas las transcripciones con un bloque resaltado ---
-def show_full_transcriptions(highlight_file=None, highlight_index=None):
-    if 'trans_df' not in st.session_state:
-        st.warning("Primero debes construir el DataFrame de transcripciones.")
-        return
-    df = st.session_state['trans_df']
-
-    for _, row in df.iterrows():
-        open_expander = (row['file'] == highlight_file and row['block_index'] == highlight_index)
-        color = "background-color: yellow" if open_expander else ""
-        with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=open_expander):
-            st.markdown(
-                f"<div style='{color}; padding:0.5em; border-radius:6px;'>{row['text']}</div>",
-                unsafe_allow_html=True
-            )
-
 
 # --- UI: Audio splitting ---
 st.header("1) Cortar audio (.m4a) en fragmentos de 30 minutos")
 col1, col2 = st.columns([2,1])
-
 
 with col1:
     uploaded = st.file_uploader(
@@ -234,13 +189,11 @@ with col1:
                     segment_seconds=int(segment_minutes*60)
                 )
             if segments:
-                # Guardar segmentos en session_state
                 st.session_state['audio_segments'] = segments
                 st.success(f"Generados {len(segments)} fragmentos")
             else:
-                st.error("No se generaron fragmentos. Revisa el archivo o los códecs.")
+                st.error("No se generaron fragmentos.")
 
-    # Mostrar botones de descarga si ya hay segmentos
     if 'audio_segments' in st.session_state:
         st.markdown("### Descargar fragmentos")
         for seg in st.session_state['audio_segments']:
@@ -269,7 +222,6 @@ with repo_col:
     gh_url = st.text_input("Repo público GitHub (carpeta transcripciones)", 
                            value="https://github.com/jarconett/c_especiales/")
 
-    # Carga automática al iniciar si no hay session_state
     if 'trans_files' not in st.session_state and gh_url:
         with st.spinner("Cargando archivos .txt desde GitHub..."):
             files = read_txt_files_from_github(gh_url, path="transcripciones")
@@ -284,20 +236,6 @@ with repo_col:
                 st.session_state['trans_files'] = files
                 st.success(f"Cargados {len(files)} archivos desde GitHub")
 
-#with upload_col:
-#    uploaded_txts = st.file_uploader("O sube archivos .txt", type=['txt'], accept_multiple_files=True)
-#    if uploaded_txts:
-#        files = []
-#        for f in uploaded_txts:
-#            try:
-#                txt = f.read().decode('utf-8')
-#            except:
-#                txt = f.read().decode('latin-1')
-#            files.append({"name": f.name, "content": txt})
-#        st.session_state['trans_files'] = files
-#        st.success(f"Se han cargado {len(files)} archivos .txt")
-
-# Build DataFrame
 if 'trans_files' in st.session_state:
     files = st.session_state['trans_files']
     if files and st.button("Construir DataFrame de transcripciones", key='build_df'):
@@ -330,36 +268,45 @@ if 'trans_df' in st.session_state:
             else:
                 st.success(f"Encontradas {len(res)} coincidencias")
 
-                # Leyenda colores
-                st.markdown("""
-                    <div style="display:flex; gap:1em; align-items:center; margin-bottom:1em;">
-                        <div style="background-color:mediumslateblue; padding:4px 10px; border-radius:4px;">Eva</div>
-                        <div style="background-color:salmon; padding:4px 10px; border-radius:4px;">Nacho</div>
-                        <div style="background-color:#FF8C00; padding:4px 10px; border-radius:4px;">Lala</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                # DataFrame coloreado
                 styled = res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1)
                 st.dataframe(styled, use_container_width=True)
 
-                # Expanders con texto coloreado
                 for i, row in res.iterrows():
-                    color = ""
-                    if row['speaker'].lower() == "eva":
-                        color = "background-color: mediumslateblue"
-                    elif row['speaker'].lower() == "nacho":
-                        color = "background-color: salmon"
-                    elif row['speaker'].lower() == "lala":
-                        color = "background-color: #FF8C00"
                     with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})"):
-                        st.markdown(f"<div style='{color}; padding:0.5em; border-radius:6px;'>{row['text']}</div>",
-                                    unsafe_allow_html=True)
+                        st.markdown(f"<div style='padding:0.5em; border-radius:6px;'>{row['text']}</div>", unsafe_allow_html=True)
                         if st.button(f"📌 Ver en contexto ({row['file']} bloque {row['block_index']})", key=f"ctx-{i}"):
                             st.session_state['highlight'] = (row['file'], row['block_index'])
                             st.experimental_rerun()
+
+# --- Mostrar contexto ---
 if 'highlight' in st.session_state:
     file, idx = st.session_state['highlight']
-    st.markdown("---")
-    st.subheader("📖 Transcripciones completas (con contexto)")
-    show_full_transcriptions(highlight_file=file, highlight_index=idx)
+    df = st.session_state['trans_df']
+    sub = df[df['file'] == file]
+
+    mask = (sub['block_index'] >= idx-4) & (sub['block_index'] <= idx+4)
+    contexto = sub[mask][['block_index','speaker','text']].copy()
+
+    # Columna con estrella
+    contexto['⭐'] = contexto['block_index'].apply(lambda x: "⭐" if x == idx else "")
+    contexto = contexto[['⭐','block_index','speaker','text']]
+
+    def style_rows(row):
+        base_color = ""
+        speaker = str(row['speaker']).strip().lower()
+        if speaker == "eva":
+            base_color = "background-color: mediumslateblue; color: white;"
+        elif speaker == "nacho":
+            base_color = "background-color: salmon; color: black;"
+        elif speaker == "lala":
+            base_color = "background-color: #FF8C00; color: white;"
+
+        if row['block_index'] == idx:
+            return ['background-color: yellow; color: black; font-weight: bold;'] * len(row)
+
+        return [base_color] * len(row)
+
+    styled = contexto.style.apply(style_rows, axis=1)
+
+    st.markdown(f"### 📖 Contexto alrededor de bloque {idx} en {file}")
+    st.dataframe(styled, use_container_width=True)
