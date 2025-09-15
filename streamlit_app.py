@@ -144,22 +144,35 @@ def color_speaker_row(row):
 # --- Mostrar contexto ±4 líneas con bloque central resaltado ---
 def show_context(df, file, block_idx, context=4):
     sub_df = df[df['file'] == file].reset_index(drop=True)
-    idx = sub_df.index[sub_df['block_index']==block_idx][0]
-    start = max(idx-context,0)
-    end = min(idx+context+1, len(sub_df))
-    
+    idx = sub_df.index[sub_df['block_index'] == block_idx][0]
+    start = max(idx - context, 0)
+    end = min(idx + context + 1, len(sub_df))
+
     for i in range(start, end):
         row = sub_df.loc[i]
+        speaker = row['speaker']
         text = row['text']
-        color = ""
-        if row['speaker'].lower() == "eva": color = "mediumslateblue"
-        elif row['speaker'].lower() == "nacho": color = "salmon"
-        elif row['speaker'].lower() == "lala": color = "#FF8C00"
-        if i == idx:
-            # bloque central resaltado amarillo
-            st.markdown(f"<div style='background-color: yellow; padding:4px; border-radius:4px;'>{text}</div>", unsafe_allow_html=True)
+
+        # color de fondo según orador
+        if speaker.lower() == "eva":
+            bg_color = "mediumslateblue"
+        elif speaker.lower() == "nacho":
+            bg_color = "salmon"
+        elif speaker.lower() == "lala":
+            bg_color = "#FF8C00"
         else:
-            st.markdown(f"<div style='background-color:{color}; padding:2px; border-radius:4px;'>{text}</div>", unsafe_allow_html=True)
+            bg_color = "#f0f0f0"  # gris claro por defecto
+
+        # borde amarillo para la línea central
+        border_style = "2px solid yellow" if i == idx else "none"
+
+        # color de texto: blanco si fondo oscuro
+        text_color = "white" if bg_color.lower() not in ["#f0f0f0", "salmon", "#FF8C00"] else "black"
+
+        st.markdown(
+            f"<div style='background-color: {bg_color}; padding:4px; border-radius:4px; border: {border_style}; color: {text_color};'><b>{speaker}:</b> {text}</div>",
+            unsafe_allow_html=True
+        )
 
 
 # --- UI: Audio splitting ---
