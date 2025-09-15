@@ -141,14 +141,14 @@ def color_speaker_row(row):
     if s == "lala": return ["background-color: #FF8C00"]*len(row)
     return [""]*len(row)
 
-def show_full_transcriptions(highlight_file=None, highlight_index=None):
-    if 'trans_df' not in st.session_state: return
-    df = st.session_state['trans_df']
-    for _, row in df.iterrows():
-        open_expander = (row['file'] == highlight_file and row['block_index'] == highlight_index)
-        color = "background-color: yellow" if open_expander else ""
-        with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=open_expander):
-            st.markdown(f"<div style='{color}; padding:0.5em; border-radius:6px;'>{row['text']}</div>", unsafe_allow_html=True)
+# --- Mostrar contexto ±4 líneas ---
+def show_context(df, file, block_idx, context=4):
+    sub_df = df[df['file'] == file].reset_index()
+    idx = sub_df.index[sub_df['block_index']==block_idx][0]
+    start = max(idx-context,0)
+    end = min(idx+context+1, len(sub_df))
+    display_df = sub_df.loc[start:end, ['speaker','text']]
+    st.table(display_df)
 
 # --- UI: Audio splitting ---
 st.header("1) Cortar audio (.m4a) en fragmentos de 30 minutos")
@@ -208,16 +208,9 @@ if 'trans_df' in st.session_state:
         else:
             st.success(f"Encontradas {len(res)} coincidencias")
             st.dataframe(res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1), use_container_width=True)
+
+            # Expanders mostrando contexto ±4 líneas
             for i, row in res.iterrows():
                 color = {"eva":"mediumslateblue","nacho":"salmon","lala":"#FF8C00"}.get(row['speaker'].lower(),"")
-                with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})"):
-                    st.markdown(f"<div style='background-color:{color}; padding:0.5em; border-radius:6px;'>{row['text']}</div>", unsafe_allow_html=True)
-                    if st.button(f"📌 Ver en contexto ({row['file']} bloque {row['block_index']})", key=f"ctx-{i}"):
-                        st.session_state['highlight'] = (row['file'], row['block_index'])
-                        st.experimental_rerun()
-
-if 'highlight' in st.session_state:
-    file, idx = st.session_state['highlight']
-    st.markdown("---")
-    st.subheader("📖 Transcripciones completas (con contexto)")
-    show_full_transcriptions(highlight_file=file, highlight_index=idx)
+                with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=True):
+                    show_context(df, row['file'], row['block_index'], context=4)
