@@ -141,14 +141,20 @@ def color_speaker_row(row):
     if s == "lala": return ["background-color: #FF8C00"]*len(row)
     return [""]*len(row)
 
-# --- Mostrar contexto ±4 líneas ---
+# --- Mostrar contexto ±4 líneas con bloque central resaltado ---
 def show_context(df, file, block_idx, context=4):
-    sub_df = df[df['file'] == file].reset_index()
+    sub_df = df[df['file'] == file].reset_index(drop=True)
     idx = sub_df.index[sub_df['block_index']==block_idx][0]
     start = max(idx-context,0)
     end = min(idx+context+1, len(sub_df))
-    display_df = sub_df.loc[start:end, ['speaker','text']]
-    st.table(display_df)
+    display_rows = []
+    for i in range(start, end):
+        row = sub_df.loc[i]
+        text = row['text']
+        if i == idx:
+            text = f"<div style='background-color: yellow; padding:2px; border-radius:4px;'>{text}</div>"
+        display_rows.append({"speaker": row['speaker'], "text": text})
+    st.write(pd.DataFrame(display_rows))
 
 # --- UI: Audio splitting ---
 st.header("1) Cortar audio (.m4a) en fragmentos de 30 minutos")
@@ -209,8 +215,8 @@ if 'trans_df' in st.session_state:
             st.success(f"Encontradas {len(res)} coincidencias")
             st.dataframe(res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1), use_container_width=True)
 
-            # Expanders mostrando contexto ±4 líneas
+            # Expanders mostrando contexto ±4 líneas, bloque central resaltado, cerrados por defecto
             for i, row in res.iterrows():
                 color = {"eva":"mediumslateblue","nacho":"salmon","lala":"#FF8C00"}.get(row['speaker'].lower(),"")
-                with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=True):
+                with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
                     show_context(df, row['file'], row['block_index'], context=4)
