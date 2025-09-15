@@ -183,4 +183,41 @@ repo_col, _ = st.columns(2)
 with repo_col:
     gh_url = st.text_input("Repo público GitHub (carpeta transcripciones)", value="https://github.com/jarconett/c_especiales/")
     if gh_url and ('trans_files' not in st.session_state or st.button("Recargar archivos .txt desde GitHub")):
-        with st.spinner("Cargando archivos .
+        with st.spinner("Cargando archivos .txt desde GitHub..."):
+            files = read_txt_files_from_github(gh_url, path="transcripciones")
+            if files:
+                st.session_state['trans_files'] = files
+                st.session_state['trans_df'] = build_transcriptions_dataframe(files)
+                st.success(f"Cargados {len(files)} archivos y DataFrame con {len(st.session_state['trans_df'])} bloques")
+
+# --- Search UI ---
+st.header("3) Buscar en transcripciones")
+if 'trans_df' in st.session_state:
+    df = st.session_state['trans_df']
+    q_col, opt_col = st.columns([3,1])
+    with q_col: query = st.text_input("Palabra o frase a buscar")
+    with opt_col:
+        use_regex = st.checkbox("Usar regex", value=False)
+        speaker_filter = st.selectbox("Filtrar por orador", options=["(todos)"] + sorted(df['speaker'].unique().tolist()))
+    
+    if st.button("Buscar"):
+        res = search_transcriptions(df, query, use_regex)
+        if speaker_filter != "(todos)":
+            res = res[res['speaker'] == speaker_filter]
+        if res.empty: st.warning("No se encontraron coincidencias.")
+        else:
+            st.success(f"Encontradas {len(res)} coincidencias")
+            st.dataframe(res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1), use_container_width=True)
+            for i, row in res.iterrows():
+                color = {"eva":"mediumslateblue","nacho":"salmon","lala":"#FF8C00"}.get(row['speaker'].lower(),"")
+                with st.expander(f"{row['speaker']} — {row['file']} (bloque {row['block_index']})"):
+                    st.markdown(f"<div style='background-color:{color}; padding:0.5em; border-radius:6px;'>{row['text']}</div>", unsafe_allow_html=True)
+                    if st.button(f"📌 Ver en contexto ({row['file']} bloque {row['block_index']})", key=f"ctx-{i}"):
+                        st.session_state['highlight'] = (row['file'], row['block_index'])
+                        st.experimental_rerun()
+
+if 'highlight' in st.session_state:
+    file, idx = st.session_state['highlight']
+    st.markdown("---")
+    st.subheader("📖 Transcripciones completas (con contexto)")
+    show_full_transcriptions(highlight_file=file, highlight_index=idx)
