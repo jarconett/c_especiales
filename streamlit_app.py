@@ -147,14 +147,20 @@ def show_context(df, file, block_idx, context=4):
     idx = sub_df.index[sub_df['block_index']==block_idx][0]
     start = max(idx-context,0)
     end = min(idx+context+1, len(sub_df))
-    display_rows = []
+    
     for i in range(start, end):
         row = sub_df.loc[i]
         text = row['text']
+        color = ""
+        if row['speaker'].lower() == "eva": color = "mediumslateblue"
+        elif row['speaker'].lower() == "nacho": color = "salmon"
+        elif row['speaker'].lower() == "lala": color = "#FF8C00"
         if i == idx:
-            text = f"<div style='background-color: yellow; padding:2px; border-radius:4px;'>{text}</div>"
-        display_rows.append({"speaker": row['speaker'], "text": text})
-    st.write(pd.DataFrame(display_rows))
+            # bloque central resaltado amarillo
+            st.markdown(f"<div style='background-color: yellow; padding:4px; border-radius:4px;'>{text}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='background-color:{color}; padding:2px; border-radius:4px;'>{text}</div>", unsafe_allow_html=True)
+
 
 # --- UI: Audio splitting ---
 st.header("1) Cortar audio (.m4a) en fragmentos de 30 minutos")
