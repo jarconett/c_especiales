@@ -358,8 +358,8 @@ if 'trans_df' in st.session_state:
                         if st.button(f"📌 Ver en contexto ({row['file']} bloque {row['block_index']})", key=f"ctx-{i}"):
                             st.session_state['highlight'] = (row['file'], row['block_index'])
                             st.experimental_rerun()
-                            if 'highlight' in st.session_state:
-                                file, idx = st.session_state['highlight']
-                                st.markdown("---")
-                                st.subheader("📖 Transcripciones completas (con contexto)")
-                                show_full_transcriptions(highlight_file=file, highlight_index=idx)
+if 'highlight' in st.session_state:
+    file, idx = st.session_state['highlight']
+    st.markdown("---")
+    st.subheader("📖 Transcripciones completas (con contexto)")
+    show_full_transcriptions(highlight_file=file, highlight_index=idx)
