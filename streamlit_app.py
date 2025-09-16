@@ -1,8 +1,4 @@
 import streamlit as st
-import pandas as pd
-import re, requests, base64, unicodedata, html
-from typing import List
-import os
 # Configuración de la app
 st.set_page_config(
     page_title="Buscador de transcripciones",
@@ -19,6 +15,11 @@ hide_streamlit_style = """
     </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+import pandas as pd
+import re, requests, base64, unicodedata, html
+from typing import List
+import os
 
 st.set_page_config(page_title="Buscador de programas", layout="wide")
 st.title("🔍 Buscador")
