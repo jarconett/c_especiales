@@ -246,7 +246,7 @@ if 'trans_df' in st.session_state:
     
     if st.button("Buscar"):
     # Usa la nueva función de búsqueda
-    res = search_transcriptions(df, query, use_regex)
+        res = search_transcriptions(df, query, use_regex)
     
     # Mantiene el filtro por orador de tu código original
     if speaker_filter != "(todos)":
