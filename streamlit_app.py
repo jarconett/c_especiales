@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import re, requests, base64, unicodedata, html
 from typing import List
+import os
 
 st.set_page_config(page_title="Buscador de transcripciones", layout="wide")
 st.title("🔍 Buscador de transcripciones")
 
 # -------------------------------
-# FUNCIONES GITHUB
+# FUNCIONES GITHUB (ocultas al usuario)
 # -------------------------------
 def _get_github_headers():
     token = None
@@ -25,19 +26,14 @@ def _get_github_headers():
 
 def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> List[dict]:
     import re as _re
-    if repo_url.count("/") == 1 and "/" in repo_url:
-        owner_repo = repo_url
-    else:
-        m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
-        if not m:
-            st.error("URL de repo no válida.")
-            return []
-        owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
+    m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
+    if not m:
+        return []
+    owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
     headers = _get_github_headers()
     api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
     resp = requests.get(api_url, headers=headers)
     if resp.status_code != 200:
-        st.error(f"Error fetching GitHub contents: {resp.status_code}")
         return []
     items = resp.json()
     data = []
@@ -198,17 +194,16 @@ def color_speaker_row(row):
     return [""]*len(row)
 
 # -------------------------------
-# UI FINAL: CARGA Y BÚSQUEDA
+# CARGA AUTOMÁTICA DEL DATAFRAME (URL OCULTA)
 # -------------------------------
-st.header("Cargar transcripciones desde GitHub")
-gh_url = st.text_input("Repo público GitHub (carpeta transcripciones)", value="https://github.com/jarconett/c_especiales/")
-if gh_url and ('trans_files' not in st.session_state or 'trans_df' not in st.session_state):
-    with st.spinner("Cargando archivos .txt desde GitHub..."):
-        files = read_txt_files_from_github(gh_url, path="transcripciones")
+GITHUB_REPO_URL = "https://github.com/jarconett/c_especiales/"  # No se muestra al usuario
+if 'trans_df' not in st.session_state:
+    with st.spinner("Cargando transcripciones..."):
+        files = read_txt_files_from_github(GITHUB_REPO_URL, path="transcripciones")
         if files:
             st.session_state['trans_files'] = files
             st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-            st.success(f"Transcripciones cargadas correctamente ✅")
+            st.success("Transcripciones cargadas correctamente ✅")
 
 # -------------------------------
 # BUSCADOR PARA USUARIO FINAL
