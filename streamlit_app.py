@@ -69,14 +69,15 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
             st.error("URL de repo no válida.")
             return []
         owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
-
+    
     headers = _get_github_headers()
     api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
     resp = requests.get(api_url, headers=headers)
+    
     if resp.status_code != 200:
         st.error(f"Error fetching GitHub contents: {resp.status_code}")
         return []
-
+    
     items = resp.json()
     data = []
     for f in items:
