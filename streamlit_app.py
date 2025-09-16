@@ -251,17 +251,21 @@ if 'trans_df' in st.session_state:
         use_regex = st.checkbox("Usar regex", value=False)
         speaker_filter = st.selectbox("Filtrar por orador", options=["(todos)"] + sorted(df['speaker'].unique().tolist()))
     
+    # Asegúrate de que TODA la lógica de búsqueda esté dentro de este bloque
     if st.button("Buscar"):
         res = search_transcriptions(df, query, use_regex)
+        
         if speaker_filter != "(todos)":
             res = res[res['speaker'] == speaker_filter]
-        if res.empty: st.warning("No se encontraron coincidencias.")
+        
+        if res.empty:
+            st.warning("No se encontraron coincidencias.")
         else:
             st.success(f"Encontradas {len(res)} coincidencias")
             st.dataframe(res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1), use_container_width=True)
-
-            # Expanders mostrando contexto ±4 líneas, bloque central resaltado, cerrados por defecto
+            
+            # El bucle de los expanders también debe estar aquí
             for i, row in res.iterrows():
-                color = {"eva":"mediumslateblue","nacho":"salmon","lala":"#FF8C00"}.get(row['speaker'].lower(),"")
+                # color = {"eva":"mediumslateblue","nacho":"salmon","lala":"#FF8C00"}.get(row['speaker'].lower(),"") # si lo quieres usar
                 with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
-                    show_context(df, row['file'], row['block_index'], context=4)
+                    show_context(df, row, normalize_text(query).split(), context_size=4)
