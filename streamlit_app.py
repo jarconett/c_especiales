@@ -4,8 +4,8 @@ import re, requests, base64, unicodedata, html
 from typing import List
 import os
 
-st.set_page_config(page_title="Buscador de transcripciones", layout="wide")
-st.title("🔍 Buscador de transcripciones")
+st.set_page_config(page_title="Buscador de programas", layout="wide")
+st.title("🔍 Buscador")
 
 # -------------------------------
 # FUNCIONES GITHUB (ocultas al usuario)
@@ -198,12 +198,12 @@ def color_speaker_row(row):
 # -------------------------------
 GITHUB_REPO_URL = "https://github.com/jarconett/c_especiales/"  # No se muestra al usuario
 if 'trans_df' not in st.session_state:
-    with st.spinner("Cargando transcripciones..."):
+    with st.spinner("Cargando datos..."):
         files = read_txt_files_from_github(GITHUB_REPO_URL, path="transcripciones")
         if files:
             st.session_state['trans_files'] = files
             st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-            st.success("Transcripciones cargadas correctamente ✅")
+            st.success("datos cargados correctamente ✅")
 
 # -------------------------------
 # BUSCADOR PARA USUARIO FINAL
