@@ -243,7 +243,7 @@ with repo_col:
 
 # --- Search UI ---
 st.header("3) Buscar en transcripciones")
-if 'trans_df' in st.session_state:
+if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
     df = st.session_state['trans_df']
     q_col, opt_col = st.columns([3,1])
     with q_col: query = st.text_input("Palabra o frase a buscar")
@@ -251,7 +251,6 @@ if 'trans_df' in st.session_state:
         use_regex = st.checkbox("Usar regex", value=False)
         speaker_filter = st.selectbox("Filtrar por orador", options=["(todos)"] + sorted(df['speaker'].unique().tolist()))
     
-    # Asegúrate de que TODA la lógica de búsqueda esté dentro de este bloque
     if st.button("Buscar"):
         res = search_transcriptions(df, query, use_regex)
         
@@ -264,8 +263,8 @@ if 'trans_df' in st.session_state:
             st.success(f"Encontradas {len(res)} coincidencias")
             st.dataframe(res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1), use_container_width=True)
             
-            # El bucle de los expanders también debe estar aquí
             for i, row in res.iterrows():
-                # color = {"eva":"mediumslateblue","nacho":"salmon","lala":"#FF8C00"}.get(row['speaker'].lower(),"") # si lo quieres usar
                 with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
-                    show_context(df, row, normalize_text(query).split(), context_size=4)
+                    show_context(df, row['file'], row['block_index'], context=4)
+else:
+    st.info("Carga las transcripciones en el paso 2 para comenzar a buscar.")
