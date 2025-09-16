@@ -21,7 +21,7 @@ import re, requests, base64, unicodedata, html
 from typing import List
 import os
 
-st.set_page_config(page_title="Buscador de programas", layout="wide")
+
 st.title("🔍 Buscador")
 
 # -------------------------------
