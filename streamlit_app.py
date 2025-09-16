@@ -3,16 +3,25 @@ import pandas as pd
 import re, requests, base64, unicodedata, html
 from typing import List
 import os
+# Configuración de la app
+st.set_page_config(
+    page_title="Buscador de transcripciones",
+    layout="wide",
+    initial_sidebar_state="collapsed",  # colapsa el sidebar
+    page_icon="🔍"
+)
+
+# Ocultar el menú de Streamlit (incluye GitHub icon)
+hide_streamlit_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 st.set_page_config(page_title="Buscador de programas", layout="wide")
 st.title("🔍 Buscador")
-# Add custom CSS to hide the GitHub icon
-hide_github_icon = """
-#GithubIcon {
-  visibility: hidden;
-}
-"""
-st.markdown(hide_github_icon, unsafe_allow_html=True)
 
 # -------------------------------
 # FUNCIONES GITHUB (ocultas al usuario)
