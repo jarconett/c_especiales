@@ -2,6 +2,7 @@ import streamlit as st
 from moviepy.editor import AudioFileClip
 import io, math, pandas as pd, re, requests, tempfile, os, base64
 from typing import List
+import unicodedata
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
 st.title("💰🔊 A ganar billete 💵 💶 💴")
@@ -106,34 +107,59 @@ def build_transcriptions_dataframe(files: List[dict]) -> pd.DataFrame:
     else:
         return pd.DataFrame(columns=["file","speaker","text","block_index"])
 
-def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False) -> pd.DataFrame:
+
+
+def normalize_text(text: str) -> str:
+    """Quita tildes/acentos y pasa a minúsculas."""
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")  # elimina diacríticos
+    return text.lower()
+
+def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, all_words: bool=True) -> pd.DataFrame:
     if df.empty or not query:
         return pd.DataFrame(columns=["file","speaker","text","block_index","match_preview"])
+
     results = []
     flags = re.IGNORECASE
+
+    # Normalizar query
+    norm_query = normalize_text(query)
+    query_terms = norm_query.split()
+
     for _, row in df.iterrows():
+        text = row['text']
+        norm_text = normalize_text(text)
+
         try:
-            if use_regex and re.search(query,row['text'], flags):
-                results.append(row.to_dict())
-            elif query.lower() in row['text'].lower():
-                results.append(row.to_dict())
+            if use_regex:
+                if re.search(query, text, flags):
+                    results.append(row.to_dict())
+            else:
+                if all_words:
+                    if all(term in norm_text for term in query_terms):
+                        results.append(row.to_dict())
+                else:
+                    if any(term in norm_text for term in query_terms):
+                        results.append(row.to_dict())
         except re.error:
             st.error("Regex inválida")
             return pd.DataFrame()
-    res_df = pd.DataFrame(results)
-    def make_preview(text):
-        idx = text.lower().find(query.lower()) if not use_regex else None
-        if idx is None and use_regex:
-            try:
-                m = re.search(query, text, flags)
-                if m: idx = max(m.start()-30,0)
-                return ("..." + text[idx:idx+160] + "...") if m else text[:160]
-            except: return text[:160]
-        start = max(idx-30,0) if idx is not None else 0
-        return ("..." + text[start:start+160] + "...")
-    res_df['match_preview'] = res_df['text'].apply(make_preview)
-    return res_df[['file','speaker','text','block_index','match_preview']]
 
+    res_df = pd.DataFrame(results)
+
+    def make_preview(text):
+        norm_text = normalize_text(text)
+        for term in query_terms:
+            idx = norm_text.find(term)
+            if idx != -1:
+                start = max(idx-30,0)
+                return "..." + text[start:start+160] + "..."
+        return text[:160]
+
+    if not res_df.empty:
+        res_df['match_preview'] = res_df['text'].apply(make_preview)
+
+    return res_df[['file','speaker','text','block_index','match_preview']]
 def color_speaker_row(row):
     s = row["speaker"].strip().lower()
     if s == "eva": return ["background-color: mediumslateblue"]*len(row)
