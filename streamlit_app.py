@@ -220,7 +220,7 @@ if 'trans_df' not in st.session_state:
         if files:
             st.session_state['trans_files'] = files
             st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-            st.success("datos cargados correctamente ✅")
+            st.success("Datos cargados correctamente ✅")
 
 # -------------------------------
 # BUSCADOR PARA USUARIO FINAL
