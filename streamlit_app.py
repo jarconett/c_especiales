@@ -240,7 +240,7 @@ with repo_col:
                 st.session_state['trans_files'] = files
                 st.session_state['trans_df'] = build_transcriptions_dataframe(files)
                 st.success(f"Cargados {len(files)} archivos y DataFrame con {len(st.session_state['trans_df'])} bloques")
-
+res = pd.DataFrame()
 # --- Search UI ---
 st.header("3) Buscar en transcripciones")
 if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
