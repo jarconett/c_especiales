@@ -1,6 +1,6 @@
 # c_especiales
 
-https://cespeciales-billetes.streamlit.app
+
 
 
 
