@@ -382,18 +382,20 @@ if 'trans_df' in st.session_state:
 
     # --- Selección de modelo de embeddings ---
     st.markdown("### 🔤 Modelo de embeddings")
-    model_choice = st.selectbox(
-        "Selecciona el modelo para generar embeddings",
-        options=[
-            "all-MiniLM-L6-v2 (rápido, inglés)",
-            "paraphrase-multilingual-MiniLM-L12-v2 (multilingüe)",
-            "distiluse-base-multilingual-cased-v2 (multilingüe, más preciso)"
-        ],
+    model_choice = sst.selectbox("Modelo embeddings", [
+        "alberto-base",
+        "distilbeto-base",
+        "all-MiniLM-L6-v2",
+        "paraphrase-multilingual-MiniLM-L12-v2",
+        "distiluse-base-multilingual-cased-v2"   
+    ],
         help="Modelos de SentenceTransformers para generar embeddings semánticos."
     )
 
     # Mapear selección a nombre real
     model_map = {
+        "alberto-base":"alberto-base",
+        "distilbeto-base":"distilbeto-base",
         "all-MiniLM-L6-v2 (rápido, inglés)": "all-MiniLM-L6-v2",
         "paraphrase-multilingual-MiniLM-L12-v2 (multilingüe)": "paraphrase-multilingual-MiniLM-L12-v2",
         "distiluse-base-multilingual-cased-v2 (multilingüe, más preciso)": "distiluse-base-multilingual-cased-v2"
