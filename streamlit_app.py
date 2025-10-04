@@ -335,6 +335,24 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, a
 # FUNCIONES EMBEDDINGS
 # -------------------------------
 
+def get_compatible_model_name(model_name):
+    """
+    Verifica si un modelo es compatible con SentenceTransformers.
+    Si no lo es, devuelve un modelo compatible alternativo.
+    """
+    # Modelos personalizados que no son compatibles con SentenceTransformers
+    incompatible_models = {
+        "AkDieg0/audit_distilbeto": "distiluse-base-multilingual-cased",
+        "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2": "paraphrase-multilingual-MiniLM-L12-v2"
+    }
+    
+    if model_name in incompatible_models:
+        st.warning(f"⚠️ El modelo {model_name} no es compatible con SentenceTransformers")
+        st.info(f"🔄 Usando modelo compatible: {incompatible_models[model_name]}")
+        return incompatible_models[model_name]
+    
+    return model_name
+
 @st.cache_resource
 def load_embedder():
     return SentenceTransformer("all-MiniLM-L6-v2")
@@ -349,9 +367,12 @@ def compute_embeddings(df, model_name="AkDieg0/audit_distilbeto", batch_size=64)
     """
     import streamlit as st
 
+    # Verificar compatibilidad del modelo
+    compatible_model = get_compatible_model_name(model_name)
+    
     # Cargar modelo
-    st.write(f"🧠 Cargando modelo: `{model_name}` ...")
-    model = SentenceTransformer(model_name)
+    st.write(f"🧠 Cargando modelo: `{compatible_model}` ...")
+    model = SentenceTransformer(compatible_model)
 
     # Asegurar que hay columna 'text'
     if 'text' not in df.columns:
@@ -401,7 +422,10 @@ def semantic_search(df, query, top_k=10):
         return pd.DataFrame(columns=["file","speaker","text","block_index","score"])
     
     try:
-        query_emb = embedder.encode([query], normalize_embeddings=True)
+        # Usar el modelo compatible para la consulta
+        compatible_model = get_compatible_model_name(st.session_state.get('embed_model', 'all-MiniLM-L6-v2'))
+        query_embedder = SentenceTransformer(compatible_model)
+        query_emb = query_embedder.encode([query], normalize_embeddings=True)
         all_embs = np.vstack(df["embedding"].to_numpy())
         sims = cosine_similarity(query_emb, all_embs)[0]
         
@@ -635,8 +659,10 @@ if 'trans_df' in st.session_state:
         # Verificar compatibilidad de dimensiones si hay embeddings
         if not needs_regeneration and 'embedding' in st.session_state['trans_df'].columns:
             try:
-                # Hacer una prueba rápida de dimensiones
-                test_emb = embedder.encode(["test"], normalize_embeddings=True)
+                # Hacer una prueba rápida de dimensiones con modelo compatible
+                compatible_model = get_compatible_model_name(selected_model)
+                test_embedder = SentenceTransformer(compatible_model)
+                test_emb = test_embedder.encode(["test"], normalize_embeddings=True)
                 existing_emb = st.session_state['trans_df']['embedding'].iloc[0]
                 if len(test_emb[0]) != len(existing_emb):
                     st.warning("⚠️ Detectada incompatibilidad de dimensiones, regenerando embeddings...")
@@ -645,14 +671,16 @@ if 'trans_df' in st.session_state:
                 needs_regeneration = True
         
         if needs_regeneration:
-            st.info(f"🔄 Generando embeddings con modelo **{selected_model}** (puede tardar unos segundos)...")
+            compatible_model = get_compatible_model_name(selected_model)
+            st.info(f"🔄 Generando embeddings con modelo **{compatible_model}** (puede tardar unos segundos)...")
             with st.spinner("Creando vectores semánticos..."):
                 st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'], model_name=selected_model)
                 st.session_state['has_embeddings'] = True
                 st.session_state['embed_model'] = selected_model
-                st.success(f"✅ Embeddings generados con **{selected_model}**")
+                st.success(f"✅ Embeddings generados con **{compatible_model}**")
         else:
-            st.success(f"✅ Embeddings ya generados con **{selected_model}**")
+            compatible_model = get_compatible_model_name(selected_model)
+            st.success(f"✅ Embeddings ya generados con **{compatible_model}**")
         
         # Verificar y regenerar embeddings de spoti si es necesario
         if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
@@ -665,7 +693,9 @@ if 'trans_df' in st.session_state:
             # Verificar compatibilidad de dimensiones para spoti
             if not spoti_needs_regeneration and 'embedding' in st.session_state['spoti_df'].columns:
                 try:
-                    test_emb = embedder.encode(["test"], normalize_embeddings=True)
+                    compatible_model = get_compatible_model_name(selected_model)
+                    test_embedder = SentenceTransformer(compatible_model)
+                    test_emb = test_embedder.encode(["test"], normalize_embeddings=True)
                     existing_emb = st.session_state['spoti_df']['embedding'].iloc[0]
                     if len(test_emb[0]) != len(existing_emb):
                         spoti_needs_regeneration = True
