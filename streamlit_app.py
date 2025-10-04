@@ -5,6 +5,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from typing import List
 from tqdm import tqdm
+import numpy as np
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
 st.title("⚠️⚠️⚠️⚠️TEST BRANCH⚠️⚠️⚠️⚠️💰🔊 A ganar billete 💵 💶 💴")
@@ -12,38 +13,66 @@ st.title("⚠️⚠️⚠️⚠️TEST BRANCH⚠️⚠️⚠️⚠️💰🔊 A 
 # -------------------------------
 # Configuración FFMPEG
 # -------------------------------
-FFMPEG_BIN = r"C:\Users\Javier\Downloads\ffmpeg.exe"  # Ajusta según tu entorno
-os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_BIN
+# Buscar FFMPEG en ubicaciones comunes
+FFMPEG_PATHS = [
+    r"C:\Users\Javier\Downloads\ffmpeg.exe",  # Ruta específica del usuario
+    "ffmpeg",  # Si está en PATH
+    "/usr/bin/ffmpeg",  # Linux
+    "/usr/local/bin/ffmpeg",  # macOS/Linux
+]
+
+FFMPEG_BIN = None
+for path in FFMPEG_PATHS:
+    if os.path.exists(path) or path == "ffmpeg":
+        FFMPEG_BIN = path
+        break
+
+if FFMPEG_BIN:
+    os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_BIN
+else:
+    st.warning("⚠️ FFMPEG no encontrado. Algunas funciones de audio pueden no funcionar.")
 
 # -------------------------------
 # FUNCIONES DE AUDIO
 # -------------------------------
 def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
-        tmpfile.write(audio_bytes)
-        tmp_path = tmpfile.name
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
+            tmpfile.write(audio_bytes)
+            tmp_path = tmpfile.name
 
-    clip = AudioFileClip(tmp_path)
-    duration = clip.duration
-    n_segments = math.ceil(duration / segment_seconds)
-    segments = []
+        clip = AudioFileClip(tmp_path)
+        duration = clip.duration
+        n_segments = math.ceil(duration / segment_seconds)
+        segments = []
 
-    for i in range(n_segments):
-        start = i * segment_seconds
-        end = min((i+1)*segment_seconds, duration)
-        seg_clip = clip.subclip(start, end)
+        for i in range(n_segments):
+            start = i * segment_seconds
+            end = min((i+1)*segment_seconds, duration)
+            seg_clip = clip.subclip(start, end)
 
-        seg_name = f"{filename.rsplit('.',1)[0]}_part{i+1}.m4a"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
-            seg_clip.write_audiofile(seg_tmp.name, codec="aac", verbose=False, logger=None)
-            seg_tmp.seek(0)
-            seg_bytes = open(seg_tmp.name, "rb").read()
-        segments.append({"name": seg_name, "bytes": seg_bytes})
-        os.unlink(seg_tmp.name)
+            seg_name = f"{filename.rsplit('.',1)[0]}_part{i+1}.m4a"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
+                seg_clip.write_audiofile(seg_tmp.name, codec="aac", verbose=False, logger=None)
+                seg_tmp.seek(0)
+                seg_bytes = open(seg_tmp.name, "rb").read()
+            segments.append({"name": seg_name, "bytes": seg_bytes})
+            os.unlink(seg_tmp.name)
 
-    clip.close()
-    os.unlink(tmp_path)
-    return segments
+        clip.close()
+        os.unlink(tmp_path)
+        return segments
+        
+    except Exception as e:
+        # Limpiar archivos temporales en caso de error
+        try:
+            if 'clip' in locals():
+                clip.close()
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        except:
+            pass
+        raise Exception(f"Error procesando audio: {str(e)}")
 
 # -------------------------------
 # FUNCIONES GITHUB
@@ -233,7 +262,7 @@ def load_embedder():
 embedder = load_embedder()
 
 @st.cache_data(show_spinner=False)
-def compute_embeddings(df, model_name="all-MiniLM-L6-v2", batch_size=64):
+def compute_embeddings(df, model_name="distilbeto-base", batch_size=64):
     """
     Genera embeddings para el texto en df['text'] usando SentenceTransformer.
     Procesa en lotes para mayor velocidad y muestra progreso en Streamlit.
@@ -337,9 +366,13 @@ with col1:
     if uploaded and st.button("Procesar audio y generar fragmentos"):
         audio_bytes = uploaded.read()
         with st.spinner("Cortando audio..."):
-            segments = split_audio(audio_bytes, uploaded.name, segment_seconds=int(segment_minutes*60))
-            st.session_state['audio_segments'] = segments
-            st.success(f"Generados {len(segments)} fragmentos")
+            try:
+                segments = split_audio(audio_bytes, uploaded.name, segment_seconds=int(segment_minutes*60))
+                st.session_state['audio_segments'] = segments
+                st.success(f"Generados {len(segments)} fragmentos")
+            except Exception as e:
+                st.error(f"Error procesando audio: {str(e)}")
+                st.info("Asegúrate de que FFMPEG esté instalado y accesible.")
     if 'audio_segments' in st.session_state:
         st.markdown("### Descargar fragmentos")
         for seg in st.session_state['audio_segments']:
@@ -383,8 +416,8 @@ if 'trans_df' in st.session_state:
     # --- Selección de modelo de embeddings ---
     st.markdown("### 🔤 Modelo de embeddings")
     model_choice = st.selectbox("Modelo embeddings", [
-        "alberto-base",
         "distilbeto-base",
+        "alberto-base",
         "all-MiniLM-L6-v2",
         "paraphrase-multilingual-MiniLM-L12-v2",
         "distiluse-base-multilingual-cased-v2"   
@@ -394,11 +427,11 @@ if 'trans_df' in st.session_state:
 
     # Mapear selección a nombre real
     model_map = {
-        "alberto-base":"alberto-base",
-        "distilbeto-base":"distilbeto-base",
-        "all-MiniLM-L6-v2 (rápido, inglés)": "all-MiniLM-L6-v2",
-        "paraphrase-multilingual-MiniLM-L12-v2 (multilingüe)": "paraphrase-multilingual-MiniLM-L12-v2",
-        "distiluse-base-multilingual-cased-v2 (multilingüe, más preciso)": "distiluse-base-multilingual-cased-v2"
+        "distilbeto-base": "distilbeto-base", 
+        "alberto-base": "alberto-base",
+        "all-MiniLM-L6-v2": "all-MiniLM-L6-v2",
+        "paraphrase-multilingual-MiniLM-L12-v2": "paraphrase-multilingual-MiniLM-L12-v2",
+        "distiluse-base-multilingual-cased-v2": "distiluse-base-multilingual-cased-v2"
     }
     selected_model = model_map[model_choice]
 
