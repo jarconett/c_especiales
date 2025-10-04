@@ -325,6 +325,13 @@ with repo_col:
                 st.session_state['trans_df'] = build_transcriptions_dataframe(files)
                 st.success(f"Cargados {len(files)} archivos y DataFrame con {len(st.session_state['trans_df'])} bloques")
 
+if 'trans_df' in st.session_state and not st.session_state.get('has_embeddings', False):
+    with st.spinner("Generando embeddings (puede tardar unos segundos)..."):
+        st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'])
+        st.session_state['has_embeddings'] = True
+        st.success("Embeddings generados correctamente ✅")
+
+
 # -------------------------------
 # UI: BÚSQUEDA
 # -------------------------------
