@@ -4,6 +4,7 @@ import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, 
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from typing import List
+from tqdm import tqdm
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
 st.title("⚠️⚠️⚠️⚠️TEST BRANCH⚠️⚠️⚠️⚠️💰🔊 A ganar billete 💵 💶 💴")
@@ -232,11 +233,53 @@ def load_embedder():
 embedder = load_embedder()
 
 @st.cache_data(show_spinner=False)
-def compute_embeddings(df):
-    texts = df["text"].tolist()
-    embeddings = embedder.encode(texts, show_progress_bar=True, convert_to_numpy=True, normalize_embeddings=True)
-    df = df.copy()
-    df["embedding"] = list(embeddings)
+def compute_embeddings(df, model_name="all-MiniLM-L6-v2", batch_size=64):
+    """
+    Genera embeddings para el texto en df['text'] usando SentenceTransformer.
+    Procesa en lotes para mayor velocidad y muestra progreso en Streamlit.
+    """
+    import streamlit as st
+
+    # Cargar modelo
+    st.write(f"🧠 Cargando modelo: `{model_name}` ...")
+    model = SentenceTransformer(model_name)
+
+    # Asegurar que hay columna 'text'
+    if 'text' not in df.columns:
+        st.error("❌ No se encontró columna 'text' en el DataFrame.")
+        return df
+
+    # Limpiar embeddings previos (por si el modelo cambió)
+    if 'embedding' in df.columns:
+        df = df.drop(columns=['embedding'])
+
+    texts = df['text'].astype(str).tolist()
+    total = len(texts)
+    embeddings = []
+
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
+        batch = texts[start:end]
+
+        # Codificar el lote
+        batch_embeds = model.encode(batch, show_progress_bar=False, normalize_embeddings=True)
+        embeddings.extend(batch_embeds)
+
+        # Actualizar progreso
+        progress = int((end / total) * 100)
+        progress_bar.progress(progress)
+        status_text.text(f"Procesando textos {end}/{total}...")
+
+    # Convertir a array y asignar al DataFrame
+    df["embedding"] = embeddings
+
+    progress_bar.empty()
+    status_text.empty()
+    st.success(f"✅ Embeddings generados correctamente ({len(df)} bloques)")
+
     return df
 
 def semantic_search(df, query, top_k=10):
@@ -314,22 +357,71 @@ with col2:
 # UI: TRANSCRIPCIONES
 # -------------------------------
 st.header("2) Leer transcripciones desde GitHub")
+
 repo_col, _ = st.columns(2)
 with repo_col:
-    gh_url = st.text_input("Repo público GitHub (carpeta transcripciones)", value="https://github.com/jarconett/c_especiales/")
-    if gh_url and ('trans_files' not in st.session_state or st.button("Recargar archivos .txt desde GitHub")):
+    gh_url = st.text_input(
+        "Repo público GitHub (carpeta transcripciones)",
+        value="https://github.com/jarconett/c_especiales/"
+    )
+
+    # Cargar transcripciones desde GitHub
+    if gh_url and ('trans_files' not in st.session_state or st.button("📥 Recargar archivos .txt desde GitHub")):
         with st.spinner("Cargando archivos .txt desde GitHub..."):
             files = read_txt_files_from_github(gh_url, path="transcripciones")
             if files:
                 st.session_state['trans_files'] = files
                 st.session_state['trans_df'] = build_transcriptions_dataframe(files)
+                st.session_state['has_embeddings'] = False
+                st.session_state['embed_model'] = None  # reiniciar modelo activo
                 st.success(f"Cargados {len(files)} archivos y DataFrame con {len(st.session_state['trans_df'])} bloques")
 
-if 'trans_df' in st.session_state and not st.session_state.get('has_embeddings', False):
-    with st.spinner("Generando embeddings (puede tardar unos segundos)..."):
-        st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'])
-        st.session_state['has_embeddings'] = True
-        st.success("Embeddings generados correctamente ✅")
+# Solo mostrar controles si hay transcripciones
+if 'trans_df' in st.session_state:
+    df = st.session_state['trans_df']
+
+    # --- Selección de modelo de embeddings ---
+    st.markdown("### 🔤 Modelo de embeddings")
+    model_choice = st.selectbox(
+        "Selecciona el modelo para generar embeddings",
+        options=[
+            "all-MiniLM-L6-v2 (rápido, inglés)",
+            "paraphrase-multilingual-MiniLM-L12-v2 (multilingüe)",
+            "distiluse-base-multilingual-cased-v2 (multilingüe, más preciso)"
+        ],
+        help="Modelos de SentenceTransformers para generar embeddings semánticos."
+    )
+
+    # Mapear selección a nombre real
+    model_map = {
+        "all-MiniLM-L6-v2 (rápido, inglés)": "all-MiniLM-L6-v2",
+        "paraphrase-multilingual-MiniLM-L12-v2 (multilingüe)": "paraphrase-multilingual-MiniLM-L12-v2",
+        "distiluse-base-multilingual-cased-v2 (multilingüe, más preciso)": "distiluse-base-multilingual-cased-v2"
+    }
+    selected_model = model_map[model_choice]
+
+    # --- Control de embeddings ---
+    colA, colB = st.columns([2, 1])
+    with colA:
+        # Estado de embeddings
+        if not st.session_state.get('has_embeddings', False) or st.session_state.get('embed_model') != selected_model:
+            st.info(f"Generando embeddings con modelo **{selected_model}** (puede tardar unos segundos)...")
+            with st.spinner("Creando vectores semánticos..."):
+                st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'], model_name=selected_model)
+                st.session_state['has_embeddings'] = True
+                st.session_state['embed_model'] = selected_model
+                st.success(f"✅ Embeddings generados con **{selected_model}**")
+        else:
+            st.success(f"✅ Embeddings ya generados con **{selected_model}**")
+
+    with colB:
+        if st.button("🔁 Regenerar embeddings manualmente"):
+            with st.spinner(f"Recalculando embeddings con {selected_model}..."):
+                st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'], model_name=selected_model)
+                st.session_state['has_embeddings'] = True
+                st.session_state['embed_model'] = selected_model
+                st.success("Embeddings recalculados correctamente ✅")
+
 
 
 # -------------------------------
