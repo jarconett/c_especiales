@@ -6,6 +6,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 from typing import List
 from tqdm import tqdm
 import numpy as np
+import torch
+import torch.nn.functional as F
+from transformers import AutoModel, AutoTokenizer
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
 st.title("⚠️⚠️⚠️⚠️TEST BRANCH⚠️⚠️⚠️⚠️💰🔊 A ganar billete 💵 💶 💴")
@@ -335,23 +338,58 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, a
 # FUNCIONES EMBEDDINGS
 # -------------------------------
 
+class CustomEmbedder:
+    """
+    Wrapper para usar modelos de Hugging Face Transformers con SentenceTransformers
+    """
+    def __init__(self, model_name):
+        self.model_name = model_name
+        self.model = AutoModel.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+    def encode(self, texts, normalize_embeddings=True, show_progress_bar=False):
+        """
+        Codifica textos a embeddings usando el modelo de Hugging Face
+        """
+        if isinstance(texts, str):
+            texts = [texts]
+            
+        # Tokenizar
+        inputs = self.tokenizer(
+            texts, 
+            return_tensors="pt", 
+            padding=True, 
+            truncation=True, 
+            max_length=512
+        )
+        
+        # Obtener embeddings
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            # Usar mean pooling del último hidden state
+            embeddings = outputs.last_hidden_state.mean(dim=1)
+            
+        if normalize_embeddings:
+            embeddings = F.normalize(embeddings, p=2, dim=1)
+            
+        return embeddings.numpy()
+
 def get_compatible_model_name(model_name):
     """
     Verifica si un modelo es compatible con SentenceTransformers.
-    Si no lo es, devuelve un modelo compatible alternativo.
+    Si no lo es, devuelve el modelo original para usar con CustomEmbedder.
     """
-    # Modelos personalizados que no son compatibles con SentenceTransformers
-    incompatible_models = {
-        "AkDieg0/audit_distilbeto": "distiluse-base-multilingual-cased",
-        "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2": "paraphrase-multilingual-MiniLM-L12-v2"
+    # Modelos personalizados que requieren CustomEmbedder
+    custom_models = {
+        "AkDieg0/audit_distilbeto": True,
+        "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2": True
     }
     
-    if model_name in incompatible_models:
-        st.warning(f"⚠️ El modelo {model_name} no es compatible con SentenceTransformers")
-        st.info(f"🔄 Usando modelo compatible: {incompatible_models[model_name]}")
-        return incompatible_models[model_name]
+    if model_name in custom_models:
+        st.info(f"🔧 Usando modelo personalizado: {model_name}")
+        return model_name, True  # (model_name, is_custom)
     
-    return model_name
+    return model_name, False  # (model_name, is_custom)
 
 @st.cache_resource
 def load_embedder():
@@ -362,17 +400,20 @@ embedder = load_embedder()
 @st.cache_data(show_spinner=False)
 def compute_embeddings(df, model_name="AkDieg0/audit_distilbeto", batch_size=64):
     """
-    Genera embeddings para el texto en df['text'] usando SentenceTransformer.
+    Genera embeddings para el texto en df['text'] usando SentenceTransformer o CustomEmbedder.
     Procesa en lotes para mayor velocidad y muestra progreso en Streamlit.
     """
     import streamlit as st
 
     # Verificar compatibilidad del modelo
-    compatible_model = get_compatible_model_name(model_name)
+    compatible_model, is_custom = get_compatible_model_name(model_name)
     
     # Cargar modelo
     st.write(f"🧠 Cargando modelo: `{compatible_model}` ...")
-    model = SentenceTransformer(compatible_model)
+    if is_custom:
+        model = CustomEmbedder(compatible_model)
+    else:
+        model = SentenceTransformer(compatible_model)
 
     # Asegurar que hay columna 'text'
     if 'text' not in df.columns:
@@ -423,8 +464,11 @@ def semantic_search(df, query, top_k=10):
     
     try:
         # Usar el modelo compatible para la consulta
-        compatible_model = get_compatible_model_name(st.session_state.get('embed_model', 'all-MiniLM-L6-v2'))
-        query_embedder = SentenceTransformer(compatible_model)
+        compatible_model, is_custom = get_compatible_model_name(st.session_state.get('embed_model', 'all-MiniLM-L6-v2'))
+        if is_custom:
+            query_embedder = CustomEmbedder(compatible_model)
+        else:
+            query_embedder = SentenceTransformer(compatible_model)
         query_emb = query_embedder.encode([query], normalize_embeddings=True)
         all_embs = np.vstack(df["embedding"].to_numpy())
         sims = cosine_similarity(query_emb, all_embs)[0]
@@ -660,8 +704,11 @@ if 'trans_df' in st.session_state:
         if not needs_regeneration and 'embedding' in st.session_state['trans_df'].columns:
             try:
                 # Hacer una prueba rápida de dimensiones con modelo compatible
-                compatible_model = get_compatible_model_name(selected_model)
-                test_embedder = SentenceTransformer(compatible_model)
+                compatible_model, is_custom = get_compatible_model_name(selected_model)
+                if is_custom:
+                    test_embedder = CustomEmbedder(compatible_model)
+                else:
+                    test_embedder = SentenceTransformer(compatible_model)
                 test_emb = test_embedder.encode(["test"], normalize_embeddings=True)
                 existing_emb = st.session_state['trans_df']['embedding'].iloc[0]
                 if len(test_emb[0]) != len(existing_emb):
@@ -693,8 +740,11 @@ if 'trans_df' in st.session_state:
             # Verificar compatibilidad de dimensiones para spoti
             if not spoti_needs_regeneration and 'embedding' in st.session_state['spoti_df'].columns:
                 try:
-                    compatible_model = get_compatible_model_name(selected_model)
-                    test_embedder = SentenceTransformer(compatible_model)
+                    compatible_model, is_custom = get_compatible_model_name(selected_model)
+                    if is_custom:
+                        test_embedder = CustomEmbedder(compatible_model)
+                    else:
+                        test_embedder = SentenceTransformer(compatible_model)
                     test_emb = test_embedder.encode(["test"], normalize_embeddings=True)
                     existing_emb = st.session_state['spoti_df']['embedding'].iloc[0]
                     if len(test_emb[0]) != len(existing_emb):
@@ -770,6 +820,13 @@ if df is not None and not df.empty:
 
     # Tipo de búsqueda
     search_mode = st.radio("Modo de búsqueda", ["Texto literal", "Semántica", "Híbrida (texto + semántica)"], index=0)
+
+    # Inicializar variables con valores por defecto
+    use_regex = False
+    all_words = True
+    semantic_weight = 0.7
+    threshold = 0.6
+    top_k = 20
 
     # Configuración específica
     if search_mode == "Texto literal":
@@ -869,5 +926,6 @@ if df is not None and not df.empty:
                     show_context(df, row['file'], row['block_index'], query_terms, context=4)
 else:
     st.info("Carga las transcripciones en el paso 2 para comenzar a buscar.")
+
 
 
