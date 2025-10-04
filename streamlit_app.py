@@ -13,6 +13,25 @@ from transformers import AutoModel, AutoTokenizer
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
 st.title("⚠️⚠️⚠️⚠️TEST BRANCH⚠️⚠️⚠️⚠️💰🔊 A ganar billete 💵 💶 💴")
 
+# Inicializar session_state
+def initialize_session_state():
+    """Inicializa las variables de session_state necesarias"""
+    if 'trans_df' not in st.session_state:
+        st.session_state['trans_df'] = pd.DataFrame()
+    if 'spoti_df' not in st.session_state:
+        st.session_state['spoti_df'] = pd.DataFrame()
+    if 'has_embeddings' not in st.session_state:
+        st.session_state['has_embeddings'] = False
+    if 'spoti_has_embeddings' not in st.session_state:
+        st.session_state['spoti_has_embeddings'] = False
+    if 'embed_model' not in st.session_state:
+        st.session_state['embed_model'] = None
+    if 'spoti_embed_model' not in st.session_state:
+        st.session_state['spoti_embed_model'] = None
+
+# Inicializar estado
+initialize_session_state()
+
 # -------------------------------
 # Configuración FFMPEG
 # -------------------------------
@@ -718,7 +737,7 @@ if 'trans_df' in st.session_state:
                 needs_regeneration = True
         
         if needs_regeneration:
-            compatible_model = get_compatible_model_name(selected_model)
+            compatible_model, is_custom = get_compatible_model_name(selected_model)
             st.info(f"🔄 Generando embeddings con modelo **{compatible_model}** (puede tardar unos segundos)...")
             with st.spinner("Creando vectores semánticos..."):
                 st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'], model_name=selected_model)
@@ -726,7 +745,7 @@ if 'trans_df' in st.session_state:
                 st.session_state['embed_model'] = selected_model
                 st.success(f"✅ Embeddings generados con **{compatible_model}**")
         else:
-            compatible_model = get_compatible_model_name(selected_model)
+            compatible_model, is_custom = get_compatible_model_name(selected_model)
             st.success(f"✅ Embeddings ya generados con **{compatible_model}**")
         
         # Verificar y regenerar embeddings de spoti si es necesario
@@ -810,13 +829,16 @@ if df is not None and not df.empty:
     # Entrada de búsqueda
     q_col, opt_col = st.columns([3,1])
     with q_col:
-        query = st.text_input("Palabra o frase a buscar")
+        query = st.text_input("Palabra o frase a buscar", value="")
     with opt_col:
         # Filtrar opciones de orador según la fuente
-        speaker_options = ["(todos)"] + sorted(df['speaker'].unique().tolist())
-        if df_name == "spoti":
-            speaker_options = ["(todos)"]  # No mostrar filtro de orador para spoti
-        speaker_filter = st.selectbox("Filtrar por orador", options=speaker_options)
+        try:
+            speaker_options = ["(todos)"] + sorted(df['speaker'].unique().tolist())
+            if df_name == "spoti":
+                speaker_options = ["(todos)"]  # No mostrar filtro de orador para spoti
+            speaker_filter = st.selectbox("Filtrar por orador", options=speaker_options, index=0)
+        except Exception:
+            speaker_filter = "(todos)"
 
     # Tipo de búsqueda
     search_mode = st.radio("Modo de búsqueda", ["Texto literal", "Semántica", "Híbrida (texto + semántica)"], index=0)
@@ -843,89 +865,97 @@ if df is not None and not df.empty:
 
     # Acción de búsqueda
     if st.button("Buscar"):
-        query_terms = [t for t in normalize_text(query).split() if t]
-        res = None
-        fallback_used = False
+        if not query or query.strip() == "":
+            st.warning("Por favor, introduce una consulta para buscar.")
+        else:
+            try:
+                query_terms = [t for t in normalize_text(query).split() if t]
+                res = None
+                fallback_used = False
 
-        # Búsqueda automática con respaldo
-        if search_source == "Búsqueda automática (transcripciones + spoti)":
-            # Primero buscar en transcripciones
-            if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
-                trans_df = st.session_state['trans_df']
-                if search_mode == "Texto literal":
-                    res = search_transcriptions(trans_df, query, use_regex, all_words=all_words)
-                elif search_mode == "Semántica":
-                    res = semantic_search(trans_df, query, top_k=top_k)
-                    res = res[res["score"] >= threshold]
-                else:  # Híbrida
-                    res = perform_hybrid_search(trans_df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
-                
-                # Si no hay resultados en transcripciones, buscar en spoti
-                if res.empty and 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
-                    st.info("🔄 No se encontraron resultados en transcripciones, buscando en archivos Spoti...")
-                    spoti_df = st.session_state['spoti_df']
+                # Búsqueda automática con respaldo
+                if search_source == "Búsqueda automática (transcripciones + spoti)":
+                    # Primero buscar en transcripciones
+                    if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
+                        trans_df = st.session_state['trans_df']
+                        if search_mode == "Texto literal":
+                            res = search_transcriptions(trans_df, query, use_regex, all_words=all_words)
+                        elif search_mode == "Semántica":
+                            res = semantic_search(trans_df, query, top_k=top_k)
+                            res = res[res["score"] >= threshold]
+                        else:  # Híbrida
+                            res = perform_hybrid_search(trans_df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
+                        
+                        # Si no hay resultados en transcripciones, buscar en spoti
+                        if res.empty and 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
+                            st.info("🔄 No se encontraron resultados en transcripciones, buscando en archivos Spoti...")
+                            spoti_df = st.session_state['spoti_df']
+                            if search_mode == "Texto literal":
+                                res = search_transcriptions(spoti_df, query, use_regex, all_words=all_words)
+                            elif search_mode == "Semántica":
+                                res = semantic_search(spoti_df, query, top_k=top_k)
+                                res = res[res["score"] >= threshold]
+                            else:  # Híbrida
+                                res = perform_hybrid_search(spoti_df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
+                            fallback_used = True
+                            df = spoti_df  # Cambiar df para mostrar contexto correcto
+                    else:
+                        # Solo buscar en spoti si no hay transcripciones
+                        if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
+                            spoti_df = st.session_state['spoti_df']
+                            if search_mode == "Texto literal":
+                                res = search_transcriptions(spoti_df, query, use_regex, all_words=all_words)
+                            elif search_mode == "Semántica":
+                                res = semantic_search(spoti_df, query, top_k=top_k)
+                                res = res[res["score"] >= threshold]
+                            else:  # Híbrida
+                                res = perform_hybrid_search(spoti_df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
+                            df = spoti_df
+                else:
+                    # Búsqueda normal en el DataFrame seleccionado
                     if search_mode == "Texto literal":
-                        res = search_transcriptions(spoti_df, query, use_regex, all_words=all_words)
+                        res = search_transcriptions(df, query, use_regex, all_words=all_words)
                     elif search_mode == "Semántica":
-                        res = semantic_search(spoti_df, query, top_k=top_k)
+                        res = semantic_search(df, query, top_k=top_k)
                         res = res[res["score"] >= threshold]
                     else:  # Híbrida
-                        res = perform_hybrid_search(spoti_df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
-                    fallback_used = True
-                    df = spoti_df  # Cambiar df para mostrar contexto correcto
-            else:
-                # Solo buscar en spoti si no hay transcripciones
-                if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
-                    spoti_df = st.session_state['spoti_df']
-                    if search_mode == "Texto literal":
-                        res = search_transcriptions(spoti_df, query, use_regex, all_words=all_words)
-                    elif search_mode == "Semántica":
-                        res = semantic_search(spoti_df, query, top_k=top_k)
-                        res = res[res["score"] >= threshold]
-                    else:  # Híbrida
-                        res = perform_hybrid_search(spoti_df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
-                    df = spoti_df
-        else:
-            # Búsqueda normal en el DataFrame seleccionado
-            if search_mode == "Texto literal":
-                res = search_transcriptions(df, query, use_regex, all_words=all_words)
-            elif search_mode == "Semántica":
-                res = semantic_search(df, query, top_k=top_k)
-                res = res[res["score"] >= threshold]
-            else:  # Híbrida
-                res = perform_hybrid_search(df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
+                        res = perform_hybrid_search(df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
 
-        # Filtrar por orador (solo si no es spoti)
-        if speaker_filter != "(todos)" and df_name != "spoti":
-            res = res[res['speaker'].str.lower() == speaker_filter.lower()]
+                # Filtrar por orador (solo si no es spoti)
+                if speaker_filter != "(todos)" and df_name != "spoti":
+                    res = res[res['speaker'].str.lower() == speaker_filter.lower()]
 
-        # Mostrar resultados
-        if res.empty:
-            st.warning("No se encontraron coincidencias.")
-        else:
-            source_info = " (archivos Spoti)" if fallback_used else f" ({df_name})"
-            st.success(f"Encontradas {len(res)} coincidencias{source_info}")
+                # Mostrar resultados
+                if res.empty:
+                    st.warning("No se encontraron coincidencias.")
+                else:
+                    source_info = " (archivos Spoti)" if fallback_used else f" ({df_name})"
+                    st.success(f"Encontradas {len(res)} coincidencias{source_info}")
 
-            # Mostrar score si aplica
-            cols_to_show = ['file','speaker','match_preview']
-            if "score" in res.columns:
-                cols_to_show.insert(2, 'score')
+                    # Mostrar score si aplica
+                    cols_to_show = ['file','speaker','match_preview']
+                    if "score" in res.columns:
+                        cols_to_show.insert(2, 'score')
 
-            st.dataframe(
-                res[cols_to_show]
-                .style.format({'score': '{:.3f}'})
-                .apply(color_speaker_row, axis=1),
-                use_container_width=True
-            )
+                    st.dataframe(
+                        res[cols_to_show]
+                        .style.format({'score': '{:.3f}'})
+                        .apply(color_speaker_row, axis=1),
+                        use_container_width=True
+                    )
 
-            # Mostrar contexto
-            for i, row in res.iterrows():
-                score_str = f" (score {row['score']:.3f})" if "score" in row else ""
-                speaker_info = f"{row['speaker']} — " if row['speaker'] != "DESCONOCIDO" else ""
-                with st.expander(f"{i+1}. {speaker_info}{row['file']} (bloque {row['block_index']}){score_str}", expanded=False):
-                    show_context(df, row['file'], row['block_index'], query_terms, context=4)
+                    # Mostrar contexto
+                    for i, row in res.iterrows():
+                        score_str = f" (score {row['score']:.3f})" if "score" in row else ""
+                        speaker_info = f"{row['speaker']} — " if row['speaker'] != "DESCONOCIDO" else ""
+                        with st.expander(f"{i+1}. {speaker_info}{row['file']} (bloque {row['block_index']}){score_str}", expanded=False):
+                            show_context(df, row['file'], row['block_index'], query_terms, context=4)
+            except Exception as e:
+                st.error(f"Error durante la búsqueda: {str(e)}")
+                st.info("Intenta recargar la página o cambiar el modelo de embeddings.")
 else:
     st.info("Carga las transcripciones en el paso 2 para comenzar a buscar.")
+
 
 
 
