@@ -416,16 +416,24 @@ def semantic_search(df, query, top_k=10):
             st.error("❌ Error de dimensiones: Los embeddings no coinciden con el modelo actual")
             st.warning("""
             **Solución:** Los embeddings fueron generados con un modelo diferente. 
-            Necesitas regenerar los embeddings con el modelo actual.
+            Limpiando embeddings incompatibles y regenerando automáticamente...
             """)
-            # Limpiar embeddings incompatibles
-            if 'embedding' in df.columns:
-                df = df.drop(columns=['embedding'])
-                st.session_state['trans_df'] = df
-                st.session_state['has_embeddings'] = False
+            # Limpiar todos los embeddings incompatibles
+            clear_incompatible_embeddings()
+            st.rerun()  # Recargar la página para regenerar embeddings
         else:
             st.error(f"❌ Error en búsqueda semántica: {str(e)}")
         return pd.DataFrame(columns=["file","speaker","text","block_index","score"])
+
+def clear_incompatible_embeddings():
+    """Limpia todos los embeddings incompatibles de ambos DataFrames"""
+    if 'trans_df' in st.session_state and 'embedding' in st.session_state['trans_df'].columns:
+        st.session_state['trans_df'] = st.session_state['trans_df'].drop(columns=['embedding'])
+        st.session_state['has_embeddings'] = False
+    
+    if 'spoti_df' in st.session_state and 'embedding' in st.session_state['spoti_df'].columns:
+        st.session_state['spoti_df'] = st.session_state['spoti_df'].drop(columns=['embedding'])
+        st.session_state['spoti_has_embeddings'] = False
 
 def perform_hybrid_search(df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms):
     """Realiza búsqueda híbrida combinando semántica y literal"""
@@ -624,6 +632,18 @@ if 'trans_df' in st.session_state:
             'embedding' not in st.session_state['trans_df'].columns
         )
         
+        # Verificar compatibilidad de dimensiones si hay embeddings
+        if not needs_regeneration and 'embedding' in st.session_state['trans_df'].columns:
+            try:
+                # Hacer una prueba rápida de dimensiones
+                test_emb = embedder.encode(["test"], normalize_embeddings=True)
+                existing_emb = st.session_state['trans_df']['embedding'].iloc[0]
+                if len(test_emb[0]) != len(existing_emb):
+                    st.warning("⚠️ Detectada incompatibilidad de dimensiones, regenerando embeddings...")
+                    needs_regeneration = True
+            except Exception:
+                needs_regeneration = True
+        
         if needs_regeneration:
             st.info(f"🔄 Generando embeddings con modelo **{selected_model}** (puede tardar unos segundos)...")
             with st.spinner("Creando vectores semánticos..."):
@@ -633,13 +653,45 @@ if 'trans_df' in st.session_state:
                 st.success(f"✅ Embeddings generados con **{selected_model}**")
         else:
             st.success(f"✅ Embeddings ya generados con **{selected_model}**")
+        
+        # Verificar y regenerar embeddings de spoti si es necesario
+        if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
+            spoti_needs_regeneration = (
+                not st.session_state.get('spoti_has_embeddings', False) or
+                st.session_state.get('spoti_embed_model') != selected_model or
+                'embedding' not in st.session_state['spoti_df'].columns
+            )
+            
+            # Verificar compatibilidad de dimensiones para spoti
+            if not spoti_needs_regeneration and 'embedding' in st.session_state['spoti_df'].columns:
+                try:
+                    test_emb = embedder.encode(["test"], normalize_embeddings=True)
+                    existing_emb = st.session_state['spoti_df']['embedding'].iloc[0]
+                    if len(test_emb[0]) != len(existing_emb):
+                        spoti_needs_regeneration = True
+                except Exception:
+                    spoti_needs_regeneration = True
+            
+            if spoti_needs_regeneration:
+                with st.spinner("Generando embeddings para archivos Spoti..."):
+                    st.session_state['spoti_df'] = compute_embeddings(st.session_state['spoti_df'], model_name=selected_model)
+                    st.session_state['spoti_has_embeddings'] = True
+                    st.session_state['spoti_embed_model'] = selected_model
 
     with colB:
         if st.button("🔁 Regenerar embeddings manualmente"):
             with st.spinner(f"Recalculando embeddings con {selected_model}..."):
+                # Regenerar embeddings de transcripciones
                 st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'], model_name=selected_model)
                 st.session_state['has_embeddings'] = True
                 st.session_state['embed_model'] = selected_model
+                
+                # Regenerar embeddings de spoti si existe
+                if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
+                    st.session_state['spoti_df'] = compute_embeddings(st.session_state['spoti_df'], model_name=selected_model)
+                    st.session_state['spoti_has_embeddings'] = True
+                    st.session_state['spoti_embed_model'] = selected_model
+                
                 st.success("Embeddings recalculados correctamente ✅")
 
 
@@ -787,4 +839,5 @@ if df is not None and not df.empty:
                     show_context(df, row['file'], row['block_index'], query_terms, context=4)
 else:
     st.info("Carga las transcripciones en el paso 2 para comenzar a buscar.")
+
 
