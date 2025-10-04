@@ -262,7 +262,7 @@ def load_embedder():
 embedder = load_embedder()
 
 @st.cache_data(show_spinner=False)
-def compute_embeddings(df, model_name="distilbeto-base", batch_size=64):
+def compute_embeddings(df, model_name="AkDieg0/audit_distilbeto", batch_size=64):
     """
     Genera embeddings para el texto en df['text'] usando SentenceTransformer.
     Procesa en lotes para mayor velocidad y muestra progreso en Streamlit.
@@ -416,22 +416,26 @@ if 'trans_df' in st.session_state:
     # --- Selección de modelo de embeddings ---
     st.markdown("### 🔤 Modelo de embeddings")
     model_choice = st.selectbox("Modelo embeddings", [
-        "distilbeto-base",
-        "alberto-base",
-        "all-MiniLM-L6-v2",
-        "paraphrase-multilingual-MiniLM-L12-v2",
-        "distiluse-base-multilingual-cased-v2"   
+        "AkDieg0/audit_distilbeto (DistilBERT personalizado en español)",
+        "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2 (ALBERT personalizado en español)",
+        "distiluse-base-multilingual-cased (Multilingüe, incluye español)",
+        "paraphrase-multilingual-MiniLM-L12-v2 (Multilingüe optimizado)", 
+        "all-MiniLM-L6-v2 (Rápido, inglés)",
+        "distiluse-base-multilingual-cased-v2 (Multilingüe v2)",
+        "sentence-transformers/paraphrase-multilingual-mpnet-base-v2 (MPNet multilingüe)"
     ],
-        help="Modelos de SentenceTransformers para generar embeddings semánticos."
+        help="Modelos de SentenceTransformers para generar embeddings semánticos. Los modelos personalizados están optimizados para español."
     )
 
     # Mapear selección a nombre real
     model_map = {
-        "distilbeto-base": "distilbeto-base", 
-        "alberto-base": "alberto-base",
-        "all-MiniLM-L6-v2": "all-MiniLM-L6-v2",
-        "paraphrase-multilingual-MiniLM-L12-v2": "paraphrase-multilingual-MiniLM-L12-v2",
-        "distiluse-base-multilingual-cased-v2": "distiluse-base-multilingual-cased-v2"
+        "AkDieg0/audit_distilbeto (DistilBERT personalizado en español)": "AkDieg0/audit_distilbeto",
+        "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2 (ALBERT personalizado en español)": "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2",
+        "distiluse-base-multilingual-cased (Multilingüe, incluye español)": "distiluse-base-multilingual-cased",
+        "paraphrase-multilingual-MiniLM-L12-v2 (Multilingüe optimizado)": "paraphrase-multilingual-MiniLM-L12-v2",
+        "all-MiniLM-L6-v2 (Rápido, inglés)": "all-MiniLM-L6-v2",
+        "distiluse-base-multilingual-cased-v2 (Multilingüe v2)": "distiluse-base-multilingual-cased-v2",
+        "sentence-transformers/paraphrase-multilingual-mpnet-base-v2 (MPNet multilingüe)": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
     }
     selected_model = model_map[model_choice]
 
@@ -549,3 +553,4 @@ if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
                     show_context(df, row['file'], row['block_index'], query_terms, context=4)
 else:
     st.info("Carga las transcripciones en el paso 2 para comenzar a buscar.")
+
