@@ -382,7 +382,7 @@ if 'trans_df' in st.session_state:
 
     # --- Selección de modelo de embeddings ---
     st.markdown("### 🔤 Modelo de embeddings")
-    model_choice = sst.selectbox("Modelo embeddings", [
+    model_choice = st.selectbox("Modelo embeddings", [
         "alberto-base",
         "distilbeto-base",
         "all-MiniLM-L6-v2",
