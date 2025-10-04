@@ -1,6 +1,8 @@
 import streamlit as st
 from moviepy.editor import AudioFileClip
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 from typing import List
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
