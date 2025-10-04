@@ -222,6 +222,40 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, a
     return res_df[expected_cols]
 
 # -------------------------------
+# FUNCIONES EMBEDDINGS
+# -------------------------------
+
+@st.cache_resource
+def load_embedder():
+    return SentenceTransformer("all-MiniLM-L6-v2")
+
+embedder = load_embedder()
+
+@st.cache_data(show_spinner=False)
+def compute_embeddings(df):
+    texts = df["text"].tolist()
+    embeddings = embedder.encode(texts, show_progress_bar=True, convert_to_numpy=True, normalize_embeddings=True)
+    df = df.copy()
+    df["embedding"] = list(embeddings)
+    return df
+
+def semantic_search(df, query, top_k=10):
+    if df.empty or not query:
+        return pd.DataFrame(columns=["file","speaker","text","block_index","score"])
+    
+    query_emb = embedder.encode([query], normalize_embeddings=True)
+    all_embs = np.vstack(df["embedding"].to_numpy())
+    sims = cosine_similarity(query_emb, all_embs)[0]
+    
+    df_res = df.copy()
+    df_res["score"] = sims
+    df_res = df_res.sort_values("score", ascending=False).head(top_k)
+    df_res["match_preview"] = df_res["text"].apply(lambda t: highlight_preview(t, normalize_text(query).split()))
+    return df_res[["file","speaker","text","block_index","score","match_preview"]]
+
+
+
+# -------------------------------
 # CONTEXTO
 # -------------------------------
 def show_context(df, file, block_idx, query_terms, context=4):
@@ -297,28 +331,66 @@ with repo_col:
 st.header("3) Buscar en transcripciones")
 if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
     df = st.session_state['trans_df']
-    q_col, opt_col = st.columns([3,1])
-    with q_col: query = st.text_input("Palabra o frase a buscar")
-    with opt_col:
-        use_regex = st.checkbox("Usar regex", value=False)
-        speaker_filter = st.selectbox("Filtrar por orador", options=["(todos)"] + sorted(df['speaker'].unique().tolist()))
-    match_mode = st.radio("Modo de coincidencia", ["Todas las palabras", "Alguna palabra"], index=0)
-    all_words = (match_mode == "Todas las palabras")
 
-    res = pd.DataFrame()  # Inicialización para evitar NameError
+    # Opciones básicas
+    q_col, opt_col = st.columns([3,1])
+    with q_col:
+        query = st.text_input("Palabra o frase a buscar")
+    with opt_col:
+        speaker_filter = st.selectbox("Filtrar por orador", options=["(todos)"] + sorted(df['speaker'].unique().tolist()))
+
+    # Tipo de búsqueda
+    search_mode = st.radio("Modo de búsqueda", ["Texto literal", "Semántica"], index=0)
+    use_regex = False
+    all_words = True
+
+    # Ajustes según modo
+    if search_mode == "Texto literal":
+        use_regex = st.checkbox("Usar regex", value=False)
+        match_mode = st.radio("Modo de coincidencia", ["Todas las palabras", "Alguna palabra"], index=0)
+        all_words = (match_mode == "Todas las palabras")
+    else:
+        threshold = st.slider("Umbral mínimo de similitud", 0.0, 1.0, 0.6, 0.05)
+        top_k = st.number_input("Máximo de resultados", min_value=1, max_value=100, value=20)
+
+    # Acción de búsqueda
     if st.button("Buscar"):
-        res = search_transcriptions(df, query, use_regex, all_words=all_words)
+        if search_mode == "Semántica":
+            res = semantic_search(df, query, top_k=top_k)
+            res = res[res["score"] >= threshold]
+        else:
+            res = search_transcriptions(df, query, use_regex, all_words=all_words)
+
+        # Filtro por orador
         query_terms = [t for t in normalize_text(query).split() if t]
         if speaker_filter != "(todos)":
             res = res[res['speaker'].str.lower() == speaker_filter.lower()]
 
+        # Resultados
         if res.empty:
             st.warning("No se encontraron coincidencias.")
         else:
             st.success(f"Encontradas {len(res)} coincidencias")
-            st.dataframe(res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1), use_container_width=True)
+
+            if search_mode == "Semántica":
+                # Mostrar tabla con score
+                st.dataframe(
+                    res[['file', 'speaker', 'score', 'match_preview']]
+                    .style.format({'score': '{:.3f}'})
+                    .apply(color_speaker_row, axis=1),
+                    use_container_width=True
+                )
+            else:
+                # Tabla clásica
+                st.dataframe(
+                    res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1),
+                    use_container_width=True
+                )
+
+            # Contexto expandible
             for i, row in res.iterrows():
-                with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
+                score_str = f" (score {row['score']:.3f})" if "score" in row else ""
+                with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']}){score_str}", expanded=False):
                     show_context(df, row['file'], row['block_index'], query_terms, context=4)
 else:
     st.info("Carga las transcripciones en el paso 2 para comenzar a buscar.")
