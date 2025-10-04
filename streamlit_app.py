@@ -106,8 +106,27 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
     api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
     resp = requests.get(api_url, headers=headers)
     
-    if resp.status_code != 200:
-        st.error(f"Error fetching GitHub contents: {resp.status_code}")
+    if resp.status_code == 403:
+        st.error("❌ Error 403: Acceso denegado a GitHub")
+        st.warning("""
+        **Posibles soluciones:**
+        1. **Token de GitHub**: Configura un token personal de GitHub
+        2. **Límite de API**: Has excedido el límite de la API de GitHub (60 requests/hora sin token)
+        3. **Repo privado**: El repositorio puede ser privado
+        
+        **Para configurar un token:**
+        - Ve a GitHub → Settings → Developer settings → Personal access tokens
+        - Crea un token con permisos de 'repo' (para repos privados) o 'public_repo'
+        - Configúralo como variable de entorno: `GITHUB_TOKEN=tu_token`
+        - O añádelo a los secrets de Streamlit: `GITHUB_TOKEN`
+        """)
+        return []
+    elif resp.status_code == 404:
+        st.error(f"❌ Error 404: No se encontró el repositorio o la carpeta '{path}'")
+        st.info(f"Verifica que el repositorio '{owner_repo}' existe y tiene una carpeta '{path}'")
+        return []
+    elif resp.status_code != 200:
+        st.error(f"❌ Error {resp.status_code}: {resp.text}")
         return []
     
     items = resp.json()
@@ -124,6 +143,8 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                 except Exception:
                     content = ""
                 data.append({"name": f['name'], "content": content})
+            else:
+                st.warning(f"No se pudo cargar el archivo {f['name']}: {file_resp.status_code}")
     return data
 
 def parse_transcription_text(name: str, text: str) -> pd.DataFrame:
@@ -315,15 +336,37 @@ def semantic_search(df, query, top_k=10):
     if df.empty or not query:
         return pd.DataFrame(columns=["file","speaker","text","block_index","score"])
     
-    query_emb = embedder.encode([query], normalize_embeddings=True)
-    all_embs = np.vstack(df["embedding"].to_numpy())
-    sims = cosine_similarity(query_emb, all_embs)[0]
+    # Verificar que hay embeddings
+    if 'embedding' not in df.columns:
+        st.error("❌ No hay embeddings generados. Genera embeddings primero.")
+        return pd.DataFrame(columns=["file","speaker","text","block_index","score"])
     
-    df_res = df.copy()
-    df_res["score"] = sims
-    df_res = df_res.sort_values("score", ascending=False).head(top_k)
-    df_res["match_preview"] = df_res["text"].apply(lambda t: highlight_preview(t, normalize_text(query).split()))
-    return df_res[["file","speaker","text","block_index","score","match_preview"]]
+    try:
+        query_emb = embedder.encode([query], normalize_embeddings=True)
+        all_embs = np.vstack(df["embedding"].to_numpy())
+        sims = cosine_similarity(query_emb, all_embs)[0]
+        
+        df_res = df.copy()
+        df_res["score"] = sims
+        df_res = df_res.sort_values("score", ascending=False).head(top_k)
+        df_res["match_preview"] = df_res["text"].apply(lambda t: highlight_preview(t, normalize_text(query).split()))
+        return df_res[["file","speaker","text","block_index","score","match_preview"]]
+    
+    except ValueError as e:
+        if "Incompatible dimension" in str(e):
+            st.error("❌ Error de dimensiones: Los embeddings no coinciden con el modelo actual")
+            st.warning("""
+            **Solución:** Los embeddings fueron generados con un modelo diferente. 
+            Necesitas regenerar los embeddings con el modelo actual.
+            """)
+            # Limpiar embeddings incompatibles
+            if 'embedding' in df.columns:
+                df = df.drop(columns=['embedding'])
+                st.session_state['trans_df'] = df
+                st.session_state['has_embeddings'] = False
+        else:
+            st.error(f"❌ Error en búsqueda semántica: {str(e)}")
+        return pd.DataFrame(columns=["file","speaker","text","block_index","score"])
 
 
 
@@ -391,6 +434,13 @@ with col2:
 # -------------------------------
 st.header("2) Leer transcripciones desde GitHub")
 
+# Mostrar estado del token de GitHub
+token_status = _get_github_headers().get("Authorization")
+if token_status:
+    st.success("✅ Token de GitHub configurado")
+else:
+    st.warning("⚠️ Sin token de GitHub - Límite de 60 requests/hora")
+
 repo_col, _ = st.columns(2)
 with repo_col:
     gh_url = st.text_input(
@@ -408,6 +458,28 @@ with repo_col:
                 st.session_state['has_embeddings'] = False
                 st.session_state['embed_model'] = None  # reiniciar modelo activo
                 st.success(f"Cargados {len(files)} archivos y DataFrame con {len(st.session_state['trans_df'])} bloques")
+
+# Alternativa: Cargar archivos locales
+st.markdown("### 📁 Alternativa: Cargar archivos locales")
+uploaded_files = st.file_uploader(
+    "Sube archivos .txt de transcripciones", 
+    type=['txt'], 
+    accept_multiple_files=True,
+    help="Si GitHub no funciona, puedes subir los archivos .txt directamente"
+)
+
+if uploaded_files and st.button("📥 Procesar archivos locales"):
+    files = []
+    for uploaded_file in uploaded_files:
+        content = uploaded_file.read().decode("utf-8", errors="ignore")
+        files.append({"name": uploaded_file.name, "content": content})
+    
+    if files:
+        st.session_state['trans_files'] = files
+        st.session_state['trans_df'] = build_transcriptions_dataframe(files)
+        st.session_state['has_embeddings'] = False
+        st.session_state['embed_model'] = None
+        st.success(f"Cargados {len(files)} archivos locales y DataFrame con {len(st.session_state['trans_df'])} bloques")
 
 # Solo mostrar controles si hay transcripciones
 if 'trans_df' in st.session_state:
@@ -443,8 +515,18 @@ if 'trans_df' in st.session_state:
     colA, colB = st.columns([2, 1])
     with colA:
         # Estado de embeddings
-        if not st.session_state.get('has_embeddings', False) or st.session_state.get('embed_model') != selected_model:
-            st.info(f"Generando embeddings con modelo **{selected_model}** (puede tardar unos segundos)...")
+        current_model = st.session_state.get('embed_model')
+        has_embeddings = st.session_state.get('has_embeddings', False)
+        
+        # Verificar si necesita regenerar embeddings
+        needs_regeneration = (
+            not has_embeddings or 
+            current_model != selected_model or
+            'embedding' not in st.session_state['trans_df'].columns
+        )
+        
+        if needs_regeneration:
+            st.info(f"🔄 Generando embeddings con modelo **{selected_model}** (puede tardar unos segundos)...")
             with st.spinner("Creando vectores semánticos..."):
                 st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'], model_name=selected_model)
                 st.session_state['has_embeddings'] = True
@@ -507,22 +589,28 @@ if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
         else:  # ---- HÍBRIDA ----
             # Parte semántica
             sem_res = semantic_search(df, query, top_k=len(df))
-            sem_scores = dict(zip(zip(sem_res.file, sem_res.block_index), sem_res.score))
+            
+            # Si hay error en búsqueda semántica, usar solo búsqueda literal
+            if sem_res.empty and 'embedding' in df.columns:
+                st.warning("⚠️ Error en búsqueda semántica, usando solo búsqueda literal")
+                res = search_transcriptions(df, query, use_regex=False, all_words=False)
+            else:
+                sem_scores = dict(zip(zip(sem_res.file, sem_res.block_index), sem_res.score))
 
-            # Parte literal
-            lit_res = search_transcriptions(df, query, use_regex=False, all_words=False)
-            lit_boost = set(zip(lit_res.file, lit_res.block_index))
+                # Parte literal
+                lit_res = search_transcriptions(df, query, use_regex=False, all_words=False)
+                lit_boost = set(zip(lit_res.file, lit_res.block_index))
 
-            # Combinar scores
-            df_comb = df.copy()
-            df_comb["sem_score"] = df_comb.apply(lambda r: sem_scores.get((r.file, r.block_index), 0), axis=1)
-            df_comb["lit_score"] = df_comb.apply(lambda r: 1.0 if (r.file, r.block_index) in lit_boost else 0.0, axis=1)
-            df_comb["combined_score"] = semantic_weight * df_comb["sem_score"] + (1 - semantic_weight) * df_comb["lit_score"]
+                # Combinar scores
+                df_comb = df.copy()
+                df_comb["sem_score"] = df_comb.apply(lambda r: sem_scores.get((r.file, r.block_index), 0), axis=1)
+                df_comb["lit_score"] = df_comb.apply(lambda r: 1.0 if (r.file, r.block_index) in lit_boost else 0.0, axis=1)
+                df_comb["combined_score"] = semantic_weight * df_comb["sem_score"] + (1 - semantic_weight) * df_comb["lit_score"]
 
-            df_comb = df_comb[df_comb["combined_score"] >= threshold].sort_values("combined_score", ascending=False).head(top_k)
-            df_comb["score"] = df_comb["combined_score"]
-            df_comb["match_preview"] = df_comb["text"].apply(lambda t: highlight_preview(t, query_terms))
-            res = df_comb[["file","speaker","text","block_index","score","match_preview"]]
+                df_comb = df_comb[df_comb["combined_score"] >= threshold].sort_values("combined_score", ascending=False).head(top_k)
+                df_comb["score"] = df_comb["combined_score"]
+                df_comb["match_preview"] = df_comb["text"].apply(lambda t: highlight_preview(t, query_terms))
+                res = df_comb[["file","speaker","text","block_index","score","match_preview"]]
 
         # Filtrar por orador
         if speaker_filter != "(todos)":
@@ -553,4 +641,3 @@ if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
                     show_context(df, row['file'], row['block_index'], query_terms, context=4)
 else:
     st.info("Carga las transcripciones en el paso 2 para comenzar a buscar.")
-
