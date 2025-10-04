@@ -410,11 +410,11 @@ def get_compatible_model_name(model_name):
     
     return model_name, False  # (model_name, is_custom)
 
-@st.cache_resource
-def load_embedder():
-    return SentenceTransformer("all-MiniLM-L6-v2")
-
-embedder = load_embedder()
+#@st.cache_resource
+#def load_embedder():
+#    return SentenceTransformer("all-MiniLM-L6-v2")
+#
+#embedder = load_embedder()
 
 @st.cache_data(show_spinner=False)
 def compute_embeddings(df, model_name="AkDieg0/audit_distilbeto", batch_size=64):
@@ -737,16 +737,12 @@ if 'trans_df' in st.session_state:
                 needs_regeneration = True
         
         if needs_regeneration:
-            compatible_model, is_custom = get_compatible_model_name(selected_model)
-            st.info(f"🔄 Generando embeddings con modelo **{compatible_model}** (puede tardar unos segundos)...")
-            with st.spinner("Creando vectores semánticos..."):
-                st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'], model_name=selected_model)
-                st.session_state['has_embeddings'] = True
-                st.session_state['embed_model'] = selected_model
-                st.success(f"✅ Embeddings generados con **{compatible_model}**")
+            st.warning("⚠️ Los embeddings no están generados o son incompatibles con el modelo actual.")
+            st.info("Pulsa el botón de abajo para generarlos manualmente.")
         else:
             compatible_model, is_custom = get_compatible_model_name(selected_model)
             st.success(f"✅ Embeddings ya generados con **{compatible_model}**")
+
         
         # Verificar y regenerar embeddings de spoti si es necesario
         if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
@@ -778,7 +774,7 @@ if 'trans_df' in st.session_state:
                     st.session_state['spoti_embed_model'] = selected_model
 
     with colB:
-        if st.button("🔁 Regenerar embeddings manualmente"):
+        if st.button("🧠 Generar / Regenerar embeddings manualmente"):
             with st.spinner(f"Recalculando embeddings con {selected_model}..."):
                 # Regenerar embeddings de transcripciones
                 st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'], model_name=selected_model)
