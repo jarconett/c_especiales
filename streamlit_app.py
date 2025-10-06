@@ -1,17 +1,18 @@
 import streamlit as st
 from moviepy.editor import AudioFileClip
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 from typing import List
-from tqdm import tqdm
-import numpy as np
-import torch
-import torch.nn.functional as F
-from transformers import AutoModel, AutoTokenizer
+
+# Se eliminan las importaciones de búsqueda semántica
+# from sentence_transformers import SentenceTransformer
+# from sklearn.metrics.pairwise import cosine_similarity
+# import numpy as np
+# import torch
+# import torch.nn.functional as F
+# from transformers import AutoModel, AutoTokenizer
 
 st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
-st.title("⚠️⚠️⚠️⚠️TEST BRANCH⚠️⚠️⚠️⚠️💰🔊 A ganar billete 💵 💶 💴")
+st.title("⚠️⚠️⚠️⚠️TEST BRANCH⚠️⚠️⚠️⚠️💰🔊 A ganar billete 💵 💶 💴 (Búsqueda semántica ELIMINADA)")
 
 # Inicializar session_state
 def initialize_session_state():
@@ -20,14 +21,15 @@ def initialize_session_state():
         st.session_state['trans_df'] = pd.DataFrame()
     if 'spoti_df' not in st.session_state:
         st.session_state['spoti_df'] = pd.DataFrame()
-    if 'has_embeddings' not in st.session_state:
-        st.session_state['has_embeddings'] = False
-    if 'spoti_has_embeddings' not in st.session_state:
-        st.session_state['spoti_has_embeddings'] = False
-    if 'embed_model' not in st.session_state:
-        st.session_state['embed_model'] = None
-    if 'spoti_embed_model' not in st.session_state:
-        st.session_state['spoti_embed_model'] = None
+    # Se eliminan las variables de estado de embeddings
+    # if 'has_embeddings' not in st.session_state:
+    #     st.session_state['has_embeddings'] = False
+    # if 'spoti_has_embeddings' not in st.session_state:
+    #     st.session_state['spoti_has_embeddings'] = False
+    # if 'embed_model' not in st.session_state:
+    #     st.session_state['embed_model'] = None
+    # if 'spoti_embed_model' not in st.session_state:
+    #     st.session_state['spoti_embed_model'] = None
 
 # Inicializar estado
 initialize_session_state()
@@ -45,14 +47,17 @@ FFMPEG_PATHS = [
 
 FFMPEG_BIN = None
 for path in FFMPEG_PATHS:
-    if os.path.exists(path) or path == "ffmpeg":
+    # En Streamlit Cloud, confiar en el PATH o no usar funciones de audio que requieran FFMPEG.
+    # Eliminamos la verificación de existencia para 'ffmpeg' en el PATH.
+    if path == "ffmpeg" or os.path.exists(path):
         FFMPEG_BIN = path
         break
 
 if FFMPEG_BIN:
+    # Esto puede no funcionar en Streamlit Cloud sin una instalación explícita
     os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_BIN
 else:
-    st.warning("⚠️ FFMPEG no encontrado. Algunas funciones de audio pueden no funcionar.")
+    st.warning("⚠️ FFMPEG no encontrado. Algunas funciones de audio pueden no funcionar en Streamlit Cloud.")
 
 # -------------------------------
 # FUNCIONES DE AUDIO
@@ -75,6 +80,8 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
 
             seg_name = f"{filename.rsplit('.',1)[0]}_part{i+1}.m4a"
             with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
+                # Es crucial que Streamlit Cloud tenga las dependencias de audio/ffmpeg
+                # Si esto falla, Streamlit crasheará o la función no generará el archivo
                 seg_clip.write_audiofile(seg_tmp.name, codec="aac", verbose=False, logger=None)
                 seg_tmp.seek(0)
                 seg_bytes = open(seg_tmp.name, "rb").read()
@@ -102,7 +109,7 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
 def _get_github_headers():
     token = None
     try:
-        token = st.secrets.get("GITHUB_TOKEN")
+        token = os.getenv("GITHUB_TOKEN")
     except Exception:
         token = None
     if not token:
@@ -221,9 +228,9 @@ def parse_spoti_text(name: str, text: str) -> pd.DataFrame:
             cleaned = re.sub(r"\s+", " ", paragraph.strip()).strip()
             if cleaned:
                 rows.append({
-                    "file": name, 
-                    "speaker": "DESCONOCIDO", 
-                    "text": cleaned, 
+                    "file": name,  
+                    "speaker": "DESCONOCIDO",  
+                    "text": cleaned,  
                     "block_index": idx
                 })
     
@@ -232,9 +239,9 @@ def parse_spoti_text(name: str, text: str) -> pd.DataFrame:
         cleaned = re.sub(r"\s+", " ", text.strip()).strip()
         if cleaned:
             rows.append({
-                "file": name, 
-                "speaker": "DESCONOCIDO", 
-                "text": cleaned, 
+                "file": name,  
+                "speaker": "DESCONOCIDO",  
+                "text": cleaned,  
                 "block_index": 0
             })
     
@@ -248,14 +255,16 @@ def build_spoti_dataframe(files: List[dict]) -> pd.DataFrame:
         return pd.DataFrame(columns=["file","speaker","text","block_index"])
 
 # -------------------------------
-# FUNCIONES BÚSQUEDA
+# FUNCIONES BÚSQUEDA LITERAL
 # -------------------------------
 def normalize_text(text: str) -> str:
+    # Función para eliminar acentos y pasar a minúsculas
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
     return text.lower()
 
 def norm_and_mapping(orig: str):
+    # Ayuda a mapear caracteres normalizados de vuelta al texto original
     mapping = []
     norm_chars = []
     for i, ch in enumerate(orig):
@@ -277,11 +286,14 @@ def highlight_html(orig_text: str, terms: list) -> str:
         while True:
             idx = norm.find(term, start)
             if idx == -1: break
+            # Mapear índice normalizado al original
             s_orig = mapping[idx]
             e_orig = mapping[idx + len(term) - 1] + 1
             spans.append((s_orig, e_orig))
             start = idx + len(term)
     if not spans: return html.escape(orig_text)
+    
+    # Fusionar superposiciones
     spans.sort()
     merged = []
     cur_s, cur_e = spans[0]
@@ -292,6 +304,8 @@ def highlight_html(orig_text: str, terms: list) -> str:
             merged.append((cur_s, cur_e))
             cur_s, cur_e = s,e
     merged.append((cur_s, cur_e))
+    
+    # Crear HTML con resaltado
     parts = []
     last = 0
     for s,e in merged:
@@ -321,6 +335,7 @@ def highlight_preview(orig_text: str, terms: list, preview_len: int = 160) -> st
     return orig_text[:preview_len] + ("..." if len(orig_text) > preview_len else "")
 
 def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, all_words: bool=True) -> pd.DataFrame:
+    """Realiza una búsqueda literal (por palabras clave/regex) en el DataFrame."""
     expected_cols = ['file','speaker','text','block_index','match_preview']
     if df.empty or not query:
         return pd.DataFrame(columns=expected_cols)
@@ -338,6 +353,7 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, a
                     results.append(row.to_dict())
             else:
                 if not query_terms: continue
+                # Se mantiene la lógica de búsqueda literal por palabras (todas o cualquiera)
                 if all_words and all(term in norm_text for term in query_terms):
                     results.append(row.to_dict())
                 elif not all_words and any(term in norm_text for term in query_terms):
@@ -354,202 +370,11 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, a
     return res_df[expected_cols]
 
 # -------------------------------
-# FUNCIONES EMBEDDINGS
+# FUNCIONES EMBEDDINGS (ELIMINADAS)
 # -------------------------------
-
-class CustomEmbedder:
-    """
-    Wrapper para usar modelos de Hugging Face Transformers con SentenceTransformers
-    """
-    def __init__(self, model_name):
-        self.model_name = model_name
-        self.model = AutoModel.from_pretrained(model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
-    def encode(self, texts, normalize_embeddings=True, show_progress_bar=False):
-        """
-        Codifica textos a embeddings usando el modelo de Hugging Face
-        """
-        if isinstance(texts, str):
-            texts = [texts]
-            
-        # Tokenizar
-        inputs = self.tokenizer(
-            texts, 
-            return_tensors="pt", 
-            padding=True, 
-            truncation=True, 
-            max_length=512
-        )
-        
-        # Obtener embeddings
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            # Usar mean pooling del último hidden state
-            embeddings = outputs.last_hidden_state.mean(dim=1)
-            
-        if normalize_embeddings:
-            embeddings = F.normalize(embeddings, p=2, dim=1)
-            
-        return embeddings.numpy()
-
-def get_compatible_model_name(model_name):
-    """
-    Verifica si un modelo es compatible con SentenceTransformers.
-    Si no lo es, devuelve el modelo original para usar con CustomEmbedder.
-    """
-    # Modelos personalizados que requieren CustomEmbedder
-    custom_models = {
-        "AkDieg0/audit_distilbeto": True,
-        "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2": True
-    }
-    
-    if model_name in custom_models:
-        st.info(f"🔧 Usando modelo personalizado: {model_name}")
-        return model_name, True  # (model_name, is_custom)
-    
-    return model_name, False  # (model_name, is_custom)
-
-#@st.cache_resource
-#def load_embedder():
-#    return SentenceTransformer("all-MiniLM-L6-v2")
-#
-#embedder = load_embedder()
-
-@st.cache_data(show_spinner=False)
-def compute_embeddings(df, model_name="AkDieg0/audit_distilbeto", batch_size=64):
-    """
-    Genera embeddings para el texto en df['text'] usando SentenceTransformer o CustomEmbedder.
-    Procesa en lotes para mayor velocidad y muestra progreso en Streamlit.
-    """
-    import streamlit as st
-
-    # Verificar compatibilidad del modelo
-    compatible_model, is_custom = get_compatible_model_name(model_name)
-    
-    # Cargar modelo
-    st.write(f"🧠 Cargando modelo: `{compatible_model}` ...")
-    if is_custom:
-        model = CustomEmbedder(compatible_model)
-    else:
-        model = SentenceTransformer(compatible_model)
-
-    # Asegurar que hay columna 'text'
-    if 'text' not in df.columns:
-        st.error("❌ No se encontró columna 'text' en el DataFrame.")
-        return df
-
-    # Limpiar embeddings previos (por si el modelo cambió)
-    if 'embedding' in df.columns:
-        df = df.drop(columns=['embedding'])
-
-    texts = df['text'].astype(str).tolist()
-    total = len(texts)
-    embeddings = []
-
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-
-    for start in range(0, total, batch_size):
-        end = min(start + batch_size, total)
-        batch = texts[start:end]
-
-        # Codificar el lote
-        batch_embeds = model.encode(batch, show_progress_bar=False, normalize_embeddings=True)
-        embeddings.extend(batch_embeds)
-
-        # Actualizar progreso
-        progress = int((end / total) * 100)
-        progress_bar.progress(progress)
-        status_text.text(f"Procesando textos {end}/{total}...")
-
-    # Convertir a array y asignar al DataFrame
-    df["embedding"] = embeddings
-
-    progress_bar.empty()
-    status_text.empty()
-    st.success(f"✅ Embeddings generados correctamente ({len(df)} bloques)")
-
-    return df
-
-def semantic_search(df, query, top_k=10):
-    if df.empty or not query:
-        return pd.DataFrame(columns=["file","speaker","text","block_index","score"])
-    
-    # Verificar que hay embeddings
-    if 'embedding' not in df.columns:
-        st.error("❌ No hay embeddings generados. Genera embeddings primero.")
-        return pd.DataFrame(columns=["file","speaker","text","block_index","score"])
-    
-    try:
-        # Usar el modelo compatible para la consulta
-        compatible_model, is_custom = get_compatible_model_name(st.session_state.get('embed_model', 'all-MiniLM-L6-v2'))
-        if is_custom:
-            query_embedder = CustomEmbedder(compatible_model)
-        else:
-            query_embedder = SentenceTransformer(compatible_model)
-        query_emb = query_embedder.encode([query], normalize_embeddings=True)
-        all_embs = np.vstack(df["embedding"].to_numpy())
-        sims = cosine_similarity(query_emb, all_embs)[0]
-        
-        df_res = df.copy()
-        df_res["score"] = sims
-        df_res = df_res.sort_values("score", ascending=False).head(top_k)
-        df_res["match_preview"] = df_res["text"].apply(lambda t: highlight_preview(t, normalize_text(query).split()))
-        return df_res[["file","speaker","text","block_index","score","match_preview"]]
-    
-    except ValueError as e:
-        if "Incompatible dimension" in str(e):
-            st.error("❌ Error de dimensiones: Los embeddings no coinciden con el modelo actual")
-            st.warning("""
-            **Solución:** Los embeddings fueron generados con un modelo diferente. 
-            Limpiando embeddings incompatibles y regenerando automáticamente...
-            """)
-            # Limpiar todos los embeddings incompatibles
-            clear_incompatible_embeddings()
-            st.rerun()  # Recargar la página para regenerar embeddings
-        else:
-            st.error(f"❌ Error en búsqueda semántica: {str(e)}")
-        return pd.DataFrame(columns=["file","speaker","text","block_index","score"])
-
-def clear_incompatible_embeddings():
-    """Limpia todos los embeddings incompatibles de ambos DataFrames"""
-    if 'trans_df' in st.session_state and 'embedding' in st.session_state['trans_df'].columns:
-        st.session_state['trans_df'] = st.session_state['trans_df'].drop(columns=['embedding'])
-        st.session_state['has_embeddings'] = False
-    
-    if 'spoti_df' in st.session_state and 'embedding' in st.session_state['spoti_df'].columns:
-        st.session_state['spoti_df'] = st.session_state['spoti_df'].drop(columns=['embedding'])
-        st.session_state['spoti_has_embeddings'] = False
-
-def perform_hybrid_search(df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms):
-    """Realiza búsqueda híbrida combinando semántica y literal"""
-    # Parte semántica
-    sem_res = semantic_search(df, query, top_k=len(df))
-    
-    # Si hay error en búsqueda semántica, usar solo búsqueda literal
-    if sem_res.empty and 'embedding' in df.columns:
-        st.warning("⚠️ Error en búsqueda semántica, usando solo búsqueda literal")
-        return search_transcriptions(df, query, use_regex=False, all_words=False)
-    else:
-        sem_scores = dict(zip(zip(sem_res.file, sem_res.block_index), sem_res.score))
-
-        # Parte literal
-        lit_res = search_transcriptions(df, query, use_regex=False, all_words=False)
-        lit_boost = set(zip(lit_res.file, lit_res.block_index))
-
-        # Combinar scores
-        df_comb = df.copy()
-        df_comb["sem_score"] = df_comb.apply(lambda r: sem_scores.get((r.file, r.block_index), 0), axis=1)
-        df_comb["lit_score"] = df_comb.apply(lambda r: 1.0 if (r.file, r.block_index) in lit_boost else 0.0, axis=1)
-        df_comb["combined_score"] = semantic_weight * df_comb["sem_score"] + (1 - semantic_weight) * df_comb["lit_score"]
-
-        df_comb = df_comb[df_comb["combined_score"] >= threshold].sort_values("combined_score", ascending=False).head(top_k)
-        df_comb["score"] = df_comb["combined_score"]
-        df_comb["match_preview"] = df_comb["text"].apply(lambda t: highlight_preview(t, query_terms))
-        return df_comb[["file","speaker","text","block_index","score","match_preview"]]
-
-
+# Se han eliminado las clases CustomEmbedder, get_compatible_model_name, load_embedder,
+# compute_embeddings, semantic_search, clear_incompatible_embeddings,
+# y perform_hybrid_search.
 
 # -------------------------------
 # CONTEXTO
@@ -597,7 +422,7 @@ with col1:
                 st.success(f"Generados {len(segments)} fragmentos")
             except Exception as e:
                 st.error(f"Error procesando audio: {str(e)}")
-                st.info("Asegúrate de que FFMPEG esté instalado y accesible.")
+                st.info("Asegúrate de que FFMPEG esté instalado y accesible. **Esta función puede fallar en Streamlit Cloud por falta de dependencias**.")
     if 'audio_segments' in st.session_state:
         st.markdown("### Descargar fragmentos")
         for seg in st.session_state['audio_segments']:
@@ -638,8 +463,8 @@ with repo_col:
             if trans_files:
                 st.session_state['trans_files'] = trans_files
                 st.session_state['trans_df'] = build_transcriptions_dataframe(trans_files)
-                st.session_state['has_embeddings'] = False
-                st.session_state['embed_model'] = None
+                # ELIMINADO: st.session_state['has_embeddings'] = False
+                # ELIMINADO: st.session_state['embed_model'] = None
                 st.success(f"✅ Transcripciones: {len(trans_files)} archivos, {len(st.session_state['trans_df'])} bloques")
             
             # Cargar archivos de spoti como respaldo
@@ -647,8 +472,8 @@ with repo_col:
             if spoti_files:
                 st.session_state['spoti_files'] = spoti_files
                 st.session_state['spoti_df'] = build_spoti_dataframe(spoti_files)
-                st.session_state['spoti_has_embeddings'] = False
-                st.session_state['spoti_embed_model'] = None
+                # ELIMINADO: st.session_state['spoti_has_embeddings'] = False
+                # ELIMINADO: st.session_state['spoti_embed_model'] = None
                 st.success(f"✅ Archivos Spoti: {len(spoti_files)} archivos, {len(st.session_state['spoti_df'])} bloques")
             else:
                 st.warning("⚠️ No se encontraron archivos en la carpeta 'spoti'")
@@ -671,286 +496,122 @@ if uploaded_files and st.button("📥 Procesar archivos locales"):
     if files:
         st.session_state['trans_files'] = files
         st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-        st.session_state['has_embeddings'] = False
-        st.session_state['embed_model'] = None
+        # ELIMINADO: st.session_state['has_embeddings'] = False
+        # ELIMINADO: st.session_state['embed_model'] = None
         st.success(f"Cargados {len(files)} archivos locales y DataFrame con {len(st.session_state['trans_df'])} bloques")
 
 # Solo mostrar controles si hay transcripciones
 if 'trans_df' in st.session_state:
     df = st.session_state['trans_df']
 
-    # --- Selección de modelo de embeddings ---
-    st.markdown("### 🔤 Modelo de embeddings")
-    model_choice = st.selectbox("Modelo embeddings", [
-        "AkDieg0/audit_distilbeto (DistilBERT personalizado en español)",
-        "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2 (ALBERT personalizado en español)",
-        "distiluse-base-multilingual-cased (Multilingüe, incluye español)",
-        "paraphrase-multilingual-MiniLM-L12-v2 (Multilingüe optimizado)", 
-        "all-MiniLM-L6-v2 (Rápido, inglés)",
-        "distiluse-base-multilingual-cased-v2 (Multilingüe v2)",
-        "sentence-transformers/paraphrase-multilingual-mpnet-base-v2 (MPNet multilingüe)"
-    ],
-        help="Modelos de SentenceTransformers para generar embeddings semánticos. Los modelos personalizados están optimizados para español."
-    )
+    # ELIMINADO: toda la sección de Selección de modelo de embeddings y Generación de embeddings
+    st.markdown("---")
+    
+    # -------------------------------
+    # UI: BÚSQUEDA
+    # -------------------------------
+    st.header("3) Búsqueda Literal por Palabras Clave")
+    search_query = st.text_input("Ingresa tu término de búsqueda", "")
+    
+    if search_query:
+        # Pestañas de resultados
+        tab1, tab2 = st.tabs(["Transcripciones principales", "Archivos Spoti"])
 
-    # Mapear selección a nombre real
-    model_map = {
-        "AkDieg0/audit_distilbeto (DistilBERT personalizado en español)": "AkDieg0/audit_distilbeto",
-        "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2 (ALBERT personalizado en español)": "fredymad/albeto_Pfinal_4CLASES_2e-5_16_2",
-        "distiluse-base-multilingual-cased (Multilingüe, incluye español)": "distiluse-base-multilingual-cased",
-        "paraphrase-multilingual-MiniLM-L12-v2 (Multilingüe optimizado)": "paraphrase-multilingual-MiniLM-L12-v2",
-        "all-MiniLM-L6-v2 (Rápido, inglés)": "all-MiniLM-L6-v2",
-        "distiluse-base-multilingual-cased-v2 (Multilingüe v2)": "distiluse-base-multilingual-cased-v2",
-        "sentence-transformers/paraphrase-multilingual-mpnet-base-v2 (MPNet multilingüe)": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-    }
-    selected_model = model_map[model_choice]
-
-    # --- Control de embeddings ---
-    colA, colB = st.columns([2, 1])
-    with colA:
-        # Estado de embeddings
-        current_model = st.session_state.get('embed_model')
-        has_embeddings = st.session_state.get('has_embeddings', False)
-        
-        # Verificar si necesita regenerar embeddings
-        needs_regeneration = (
-            not has_embeddings or 
-            current_model != selected_model or
-            'embedding' not in st.session_state['trans_df'].columns
-        )
-        
-        # Verificar compatibilidad de dimensiones si hay embeddings
-        if not needs_regeneration and 'embedding' in st.session_state['trans_df'].columns:
-            try:
-                # Hacer una prueba rápida de dimensiones con modelo compatible
-                compatible_model, is_custom = get_compatible_model_name(selected_model)
-                if is_custom:
-                    test_embedder = CustomEmbedder(compatible_model)
-                else:
-                    test_embedder = SentenceTransformer(compatible_model)
-                test_emb = test_embedder.encode(["test"], normalize_embeddings=True)
-                existing_emb = st.session_state['trans_df']['embedding'].iloc[0]
-                if len(test_emb[0]) != len(existing_emb):
-                    st.warning("⚠️ Detectada incompatibilidad de dimensiones, regenerando embeddings...")
-                    needs_regeneration = True
-            except Exception:
-                needs_regeneration = True
-        
-        if needs_regeneration:
-            st.warning("⚠️ Los embeddings no están generados o son incompatibles con el modelo actual.")
-            st.info("Pulsa el botón de abajo para generarlos manualmente.")
-        else:
-            compatible_model, is_custom = get_compatible_model_name(selected_model)
-            st.success(f"✅ Embeddings ya generados con **{compatible_model}**")
-
-        
-        # Verificar y regenerar embeddings de spoti si es necesario
-        if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
-            spoti_needs_regeneration = (
-                not st.session_state.get('spoti_has_embeddings', False) or
-                st.session_state.get('spoti_embed_model') != selected_model or
-                'embedding' not in st.session_state['spoti_df'].columns
-            )
+        # --- Transcripciones principales ---
+        with tab1:
+            st.markdown("#### 🔎 Búsqueda Literal: Transcripciones")
             
-            # Verificar compatibilidad de dimensiones para spoti
-            if not spoti_needs_regeneration and 'embedding' in st.session_state['spoti_df'].columns:
-                try:
-                    compatible_model, is_custom = get_compatible_model_name(selected_model)
-                    if is_custom:
-                        test_embedder = CustomEmbedder(compatible_model)
-                    else:
-                        test_embedder = SentenceTransformer(compatible_model)
-                    test_emb = test_embedder.encode(["test"], normalize_embeddings=True)
-                    existing_emb = st.session_state['spoti_df']['embedding'].iloc[0]
-                    if len(test_emb[0]) != len(existing_emb):
-                        spoti_needs_regeneration = True
-                except Exception:
-                    spoti_needs_regeneration = True
+            # Controles de búsqueda literal
+            col_search_type, col_search_match = st.columns([1, 1])
+            with col_search_type:
+                use_regex = st.checkbox("Usar Regex", value=False)
+            with col_search_match:
+                all_words = st.checkbox("Buscar TODAS las palabras (AND)", value=True, disabled=use_regex)
             
-            if spoti_needs_regeneration:
-                with st.spinner("Generando embeddings para archivos Spoti..."):
-                    st.session_state['spoti_df'] = compute_embeddings(st.session_state['spoti_df'], model_name=selected_model)
-                    st.session_state['spoti_has_embeddings'] = True
-                    st.session_state['spoti_embed_model'] = selected_model
-
-    with colB:
-        if st.button("🧠 Generar / Regenerar embeddings manualmente"):
-            with st.spinner(f"Recalculando embeddings con {selected_model}..."):
-                # Regenerar embeddings de transcripciones
-                st.session_state['trans_df'] = compute_embeddings(st.session_state['trans_df'], model_name=selected_model)
-                st.session_state['has_embeddings'] = True
-                st.session_state['embed_model'] = selected_model
+            if st.button("Buscar en Transcripciones"):
+                with st.spinner("Buscando coincidencias literales..."):
+                    search_results = search_transcriptions(
+                        st.session_state['trans_df'], 
+                        search_query, 
+                        use_regex=use_regex, 
+                        all_words=all_words
+                    )
                 
-                # Regenerar embeddings de spoti si existe
-                if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
-                    st.session_state['spoti_df'] = compute_embeddings(st.session_state['spoti_df'], model_name=selected_model)
-                    st.session_state['spoti_has_embeddings'] = True
-                    st.session_state['spoti_embed_model'] = selected_model
-                
-                st.success("Embeddings recalculados correctamente ✅")
-
-
-
-# -------------------------------
-# UI: BÚSQUEDA
-# -------------------------------
-st.header("3) Buscar en transcripciones")
-
-# Selector de fuente de búsqueda
-search_source = st.radio(
-    "Fuente de búsqueda:",
-    ["Transcripciones principales", "Archivos Spoti (respaldo)", "Búsqueda automática (transcripciones + spoti)"],
-    help="Transcripciones: Con identificadores de orador. Spoti: Sin orador identificado. Automática: Busca primero en transcripciones, luego en spoti si no hay resultados."
-)
-
-# Determinar qué DataFrame usar
-df = None
-df_name = ""
-if search_source == "Transcripciones principales" and 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
-    df = st.session_state['trans_df']
-    df_name = "transcripciones"
-elif search_source == "Archivos Spoti (respaldo)" and 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
-    df = st.session_state['spoti_df']
-    df_name = "spoti"
-elif search_source == "Búsqueda automática (transcripciones + spoti)":
-    if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
-        df = st.session_state['trans_df']
-        df_name = "transcripciones"
-    elif 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
-        df = st.session_state['spoti_df']
-        df_name = "spoti"
-
-if df is not None and not df.empty:
-
-    # Entrada de búsqueda
-    q_col, opt_col = st.columns([3,1])
-    with q_col:
-        query = st.text_input("Palabra o frase a buscar", value="")
-    with opt_col:
-        # Filtrar opciones de orador según la fuente
-        try:
-            speaker_options = ["(todos)"] + sorted(df['speaker'].unique().tolist())
-            if df_name == "spoti":
-                speaker_options = ["(todos)"]  # No mostrar filtro de orador para spoti
-            speaker_filter = st.selectbox("Filtrar por orador", options=speaker_options, index=0)
-        except Exception:
-            speaker_filter = "(todos)"
-
-    # Tipo de búsqueda
-    search_mode = st.radio("Modo de búsqueda", ["Texto literal", "Semántica", "Híbrida (texto + semántica)"], index=0)
-
-    # Inicializar variables con valores por defecto
-    use_regex = False
-    all_words = True
-    semantic_weight = 0.7
-    threshold = 0.6
-    top_k = 20
-
-    # Configuración específica
-    if search_mode == "Texto literal":
-        use_regex = st.checkbox("Usar regex", value=False)
-        match_mode = st.radio("Modo de coincidencia", ["Todas las palabras", "Alguna palabra"], index=0)
-        all_words = (match_mode == "Todas las palabras")
-    elif search_mode == "Semántica":
-        threshold = st.slider("Umbral mínimo de similitud", 0.0, 1.0, 0.6, 0.05)
-        top_k = st.number_input("Máximo de resultados", min_value=1, max_value=100, value=20)
-    else:  # Híbrida
-        semantic_weight = st.slider("Peso de la similitud semántica", 0.0, 1.0, 0.7, 0.05)
-        threshold = st.slider("Umbral mínimo del score combinado", 0.0, 1.0, 0.5, 0.05)
-        top_k = st.number_input("Máximo de resultados", min_value=1, max_value=100, value=30)
-
-    # Acción de búsqueda
-    if st.button("Buscar"):
-        if not query or query.strip() == "":
-            st.warning("Por favor, introduce una consulta para buscar.")
-        else:
-            try:
-                query_terms = [t for t in normalize_text(query).split() if t]
-                res = None
-                fallback_used = False
-
-                # Búsqueda automática con respaldo
-                if search_source == "Búsqueda automática (transcripciones + spoti)":
-                    # Primero buscar en transcripciones
-                    if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
-                        trans_df = st.session_state['trans_df']
-                        if search_mode == "Texto literal":
-                            res = search_transcriptions(trans_df, query, use_regex, all_words=all_words)
-                        elif search_mode == "Semántica":
-                            res = semantic_search(trans_df, query, top_k=top_k)
-                            res = res[res["score"] >= threshold]
-                        else:  # Híbrida
-                            res = perform_hybrid_search(trans_df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
-                        
-                        # Si no hay resultados en transcripciones, buscar en spoti
-                        if res.empty and 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
-                            st.info("🔄 No se encontraron resultados en transcripciones, buscando en archivos Spoti...")
-                            spoti_df = st.session_state['spoti_df']
-                            if search_mode == "Texto literal":
-                                res = search_transcriptions(spoti_df, query, use_regex, all_words=all_words)
-                            elif search_mode == "Semántica":
-                                res = semantic_search(spoti_df, query, top_k=top_k)
-                                res = res[res["score"] >= threshold]
-                            else:  # Híbrida
-                                res = perform_hybrid_search(spoti_df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
-                            fallback_used = True
-                            df = spoti_df  # Cambiar df para mostrar contexto correcto
-                    else:
-                        # Solo buscar en spoti si no hay transcripciones
-                        if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
-                            spoti_df = st.session_state['spoti_df']
-                            if search_mode == "Texto literal":
-                                res = search_transcriptions(spoti_df, query, use_regex, all_words=all_words)
-                            elif search_mode == "Semántica":
-                                res = semantic_search(spoti_df, query, top_k=top_k)
-                                res = res[res["score"] >= threshold]
-                            else:  # Híbrida
-                                res = perform_hybrid_search(spoti_df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
-                            df = spoti_df
+                if search_results.empty:
+                    st.info("No se encontraron resultados en las transcripciones principales.")
                 else:
-                    # Búsqueda normal en el DataFrame seleccionado
-                    if search_mode == "Texto literal":
-                        res = search_transcriptions(df, query, use_regex, all_words=all_words)
-                    elif search_mode == "Semántica":
-                        res = semantic_search(df, query, top_k=top_k)
-                        res = res[res["score"] >= threshold]
-                    else:  # Híbrida
-                        res = perform_hybrid_search(df, query, use_regex, all_words, semantic_weight, threshold, top_k, query_terms)
-
-                # Filtrar por orador (solo si no es spoti)
-                if speaker_filter != "(todos)" and df_name != "spoti":
-                    res = res[res['speaker'].str.lower() == speaker_filter.lower()]
-
-                # Mostrar resultados
-                if res.empty:
-                    st.warning("No se encontraron coincidencias.")
-                else:
-                    source_info = " (archivos Spoti)" if fallback_used else f" ({df_name})"
-                    st.success(f"Encontradas {len(res)} coincidencias{source_info}")
-
-                    # Mostrar score si aplica
-                    cols_to_show = ['file','speaker','match_preview']
-                    if "score" in res.columns:
-                        cols_to_show.insert(2, 'score')
-
+                    st.success(f"Se encontraron {len(search_results)} coincidencias.")
                     st.dataframe(
-                        res[cols_to_show]
-                        .style.format({'score': '{:.3f}'})
-                        .apply(color_speaker_row, axis=1),
+                        search_results[['file', 'speaker', 'match_preview']],
+                        column_config={
+                            "file": "Archivo",
+                            "speaker": "Orador",
+                            "match_preview": st.column_config.TextColumn("Vista Previa (Literal)")
+                        },
+                        hide_index=True,
                         use_container_width=True
                     )
+                    
+                    st.markdown("---")
+                    st.markdown("### 📚 Contexto de los resultados (Transcripciones)")
+                    for i, row in search_results.iterrows():
+                        file = row['file']
+                        block_idx = row['block_index']
+                        query_terms = [t for t in normalize_text(search_query).split() if t]
+                        
+                        st.subheader(f"Archivo: {file} - Bloque: {block_idx}")
+                        show_context(st.session_state['trans_df'], file, block_idx, query_terms, context=2)
+                        st.markdown("---")
 
-                    # Mostrar contexto
-                    for i, row in res.iterrows():
-                        score_str = f" (score {row['score']:.3f})" if "score" in row else ""
-                        speaker_info = f"{row['speaker']} — " if row['speaker'] != "DESCONOCIDO" else ""
-                        with st.expander(f"{i+1}. {speaker_info}{row['file']} (bloque {row['block_index']}){score_str}", expanded=False):
-                            show_context(df, row['file'], row['block_index'], query_terms, context=4)
-            except Exception as e:
-                st.error(f"Error durante la búsqueda: {str(e)}")
-                st.info("Intenta recargar la página o cambiar el modelo de embeddings.")
-else:
-    st.info("Carga las transcripciones en el paso 2 para comenzar a buscar.")
+
+        # --- Archivos Spoti ---
+        with tab2:
+            if 'spoti_df' in st.session_state and not st.session_state['spoti_df'].empty:
+                st.markdown("#### 🔎 Búsqueda Literal: Archivos Spoti")
+                
+                # Controles de búsqueda literal
+                col_search_type_spoti, col_search_match_spoti = st.columns([1, 1])
+                with col_search_type_spoti:
+                    use_regex_spoti = st.checkbox("Usar Regex Spoti", value=False)
+                with col_search_match_spoti:
+                    all_words_spoti = st.checkbox("Buscar TODAS las palabras Spoti (AND)", value=True, disabled=use_regex_spoti)
+                
+                if st.button("Buscar en Archivos Spoti"):
+                    with st.spinner("Buscando coincidencias literales en Spoti..."):
+                        search_results_spoti = search_transcriptions(
+                            st.session_state['spoti_df'], 
+                            search_query, 
+                            use_regex=use_regex_spoti, 
+                            all_words=all_words_spoti
+                        )
+                    
+                    if search_results_spoti.empty:
+                        st.info("No se encontraron resultados en los archivos Spoti.")
+                    else:
+                        st.success(f"Se encontraron {len(search_results_spoti)} coincidencias en Spoti.")
+                        st.dataframe(
+                            search_results_spoti[['file', 'speaker', 'match_preview']],
+                            column_config={
+                                "file": "Archivo",
+                                "speaker": "Orador",
+                                "match_preview": st.column_config.TextColumn("Vista Previa (Literal)")
+                            },
+                            hide_index=True,
+                            use_container_width=True
+                        )
+                        
+                        st.markdown("---")
+                        st.markdown("### 📚 Contexto de los resultados (Spoti)")
+                        for i, row in search_results_spoti.iterrows():
+                            file = row['file']
+                            block_idx = row['block_index']
+                            query_terms = [t for t in normalize_text(search_query).split() if t]
+                            
+                            st.subheader(f"Archivo: {file} - Bloque: {block_idx}")
+                            show_context(st.session_state['spoti_df'], file, block_idx, query_terms, context=2)
+                            st.markdown("---")
+            else:
+                st.info("No hay archivos en la carpeta 'spoti' cargados.")
 
 
 
