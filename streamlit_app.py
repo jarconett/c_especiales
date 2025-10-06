@@ -367,17 +367,12 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, a
         return pd.DataFrame(columns=expected_cols)
 
     res_df['match_preview'] = res_df['text'].apply(lambda t: highlight_preview(t, query_terms))
-    return res_df[expected_cols]
+    # Aquí se añaden las columnas 'text' y 'block_index' al resultado final
+    # para que se puedan usar en el contexto, y se reordenan
+    return res_df[['file','speaker','match_preview', 'text', 'block_index']]
 
 # -------------------------------
-# FUNCIONES EMBEDDINGS (ELIMINADAS)
-# -------------------------------
-# Se han eliminado las clases CustomEmbedder, get_compatible_model_name, load_embedder,
-# compute_embeddings, semantic_search, clear_incompatible_embeddings,
-# y perform_hybrid_search.
-
-# -------------------------------
-# CONTEXTO
+# CONTEXTO y ESTILOS
 # -------------------------------
 def show_context(df, file, block_idx, query_terms, context=4):
     sub_df = df[df['file'] == file].reset_index(drop=True)
@@ -398,12 +393,15 @@ def show_context(df, file, block_idx, query_terms, context=4):
         )
 
 def color_speaker_row(row):
+    """Retorna una lista de strings de estilo CSS para colorear la fila según el orador."""
     s = row["speaker"].strip().lower()
-    if s == "eva": return ["background-color: mediumslateblue"]*len(row)
-    if s == "nacho": return ["background-color: salmon"]*len(row)
-    if s == "lala": return ["background-color: #FF8C00"]*len(row)
-    if s == "desconocido": return ["background-color: #E0E0E0"]*len(row)
-    return [""]*len(row)
+    style = ""
+    if s == "eva": style = "background-color: mediumslateblue; color: white"
+    elif s == "nacho": style = "background-color: salmon; color: black"
+    elif s == "lala": style = "background-color: #FF8C00; color: black"
+    elif s == "desconocido": style = "background-color: #E0E0E0; color: black"
+    # Devuelve el estilo replicado para cada columna
+    return [style] * len(row)
 
 # -------------------------------
 # UI: AUDIO
@@ -463,8 +461,6 @@ with repo_col:
             if trans_files:
                 st.session_state['trans_files'] = trans_files
                 st.session_state['trans_df'] = build_transcriptions_dataframe(trans_files)
-                # ELIMINADO: st.session_state['has_embeddings'] = False
-                # ELIMINADO: st.session_state['embed_model'] = None
                 st.success(f"✅ Transcripciones: {len(trans_files)} archivos, {len(st.session_state['trans_df'])} bloques")
             
             # Cargar archivos de spoti como respaldo
@@ -472,8 +468,6 @@ with repo_col:
             if spoti_files:
                 st.session_state['spoti_files'] = spoti_files
                 st.session_state['spoti_df'] = build_spoti_dataframe(spoti_files)
-                # ELIMINADO: st.session_state['spoti_has_embeddings'] = False
-                # ELIMINADO: st.session_state['spoti_embed_model'] = None
                 st.success(f"✅ Archivos Spoti: {len(spoti_files)} archivos, {len(st.session_state['spoti_df'])} bloques")
             else:
                 st.warning("⚠️ No se encontraron archivos en la carpeta 'spoti'")
@@ -496,15 +490,12 @@ if uploaded_files and st.button("📥 Procesar archivos locales"):
     if files:
         st.session_state['trans_files'] = files
         st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-        # ELIMINADO: st.session_state['has_embeddings'] = False
-        # ELIMINADO: st.session_state['embed_model'] = None
         st.success(f"Cargados {len(files)} archivos locales y DataFrame con {len(st.session_state['trans_df'])} bloques")
 
 # Solo mostrar controles si hay transcripciones
 if 'trans_df' in st.session_state:
     df = st.session_state['trans_df']
 
-    # ELIMINADO: toda la sección de Selección de modelo de embeddings y Generación de embeddings
     st.markdown("---")
     
     # -------------------------------
@@ -541,12 +532,16 @@ if 'trans_df' in st.session_state:
                     st.info("No se encontraron resultados en las transcripciones principales.")
                 else:
                     st.success(f"Se encontraron {len(search_results)} coincidencias.")
+                    
+                    # 💡 APLICAR ESTILO DE FILA AQUÍ
                     st.dataframe(
-                        search_results[['file', 'speaker', 'match_preview']],
+                        search_results[['file', 'speaker', 'match_preview', 'block_index']]
+                            .style.apply(color_speaker_row, axis=1),
                         column_config={
                             "file": "Archivo",
                             "speaker": "Orador",
-                            "match_preview": st.column_config.TextColumn("Vista Previa (Literal)")
+                            "match_preview": st.column_config.TextColumn("Vista Previa (Literal)"),
+                            "block_index": "Bloque"
                         },
                         hide_index=True,
                         use_container_width=True
@@ -559,7 +554,7 @@ if 'trans_df' in st.session_state:
                         block_idx = row['block_index']
                         query_terms = [t for t in normalize_text(search_query).split() if t]
                         
-                        st.subheader(f"Archivo: {file} - Bloque: {block_idx}")
+                        st.subheader(f"Archivo: {file} - Bloque: {block_idx} (Orador: {row['speaker']})")
                         show_context(st.session_state['trans_df'], file, block_idx, query_terms, context=2)
                         st.markdown("---")
 
@@ -589,12 +584,16 @@ if 'trans_df' in st.session_state:
                         st.info("No se encontraron resultados en los archivos Spoti.")
                     else:
                         st.success(f"Se encontraron {len(search_results_spoti)} coincidencias en Spoti.")
+                        
+                        # 💡 APLICAR ESTILO DE FILA AQUÍ (Spoti)
                         st.dataframe(
-                            search_results_spoti[['file', 'speaker', 'match_preview']],
+                            search_results_spoti[['file', 'speaker', 'match_preview', 'block_index']]
+                                .style.apply(color_speaker_row, axis=1),
                             column_config={
                                 "file": "Archivo",
                                 "speaker": "Orador",
-                                "match_preview": st.column_config.TextColumn("Vista Previa (Literal)")
+                                "match_preview": st.column_config.TextColumn("Vista Previa (Literal)"),
+                                "block_index": "Bloque"
                             },
                             hide_index=True,
                             use_container_width=True
@@ -607,7 +606,7 @@ if 'trans_df' in st.session_state:
                             block_idx = row['block_index']
                             query_terms = [t for t in normalize_text(search_query).split() if t]
                             
-                            st.subheader(f"Archivo: {file} - Bloque: {block_idx}")
+                            st.subheader(f"Archivo: {file} - Bloque: {block_idx} (Orador: {row['speaker']})")
                             show_context(st.session_state['spoti_df'], file, block_idx, query_terms, context=2)
                             st.markdown("---")
             else:
