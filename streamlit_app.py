@@ -7,7 +7,7 @@ from typing import List
 # CONFIGURACIÓN DE LA APP
 # -------------------------------
 st.set_page_config(
-    page_title="Buscador de transcripciones",
+    page_title="Buscador de transcripciones optimizado",
     layout="wide",
     initial_sidebar_state="collapsed",
     page_icon="🔍"
