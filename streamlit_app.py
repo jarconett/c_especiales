@@ -10,7 +10,7 @@ st.set_page_config(
     page_title="Buscador de transcripciones optimizado",
     layout="wide",
     initial_sidebar_state="collapsed",
-    page_icon="🔍"
+    page_icon="🚀"
 )
 st.markdown("""
     <style>
@@ -18,7 +18,7 @@ st.markdown("""
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
-st.title("🔍 Buscador")
+st.title("🔍 Buscador Optimizado 🚀")
 
 # -------------------------------
 # FUNCIONES GITHUB
