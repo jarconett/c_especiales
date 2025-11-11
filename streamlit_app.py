@@ -1,31 +1,27 @@
 import streamlit as st
-# Configuración de la app
+import pandas as pd
+import re, requests, base64, unicodedata, html, os
+from typing import List
+
+# -------------------------------
+# CONFIGURACIÓN DE LA APP
+# -------------------------------
 st.set_page_config(
     page_title="Buscador de transcripciones",
     layout="wide",
-    initial_sidebar_state="collapsed",  # colapsa el sidebar
+    initial_sidebar_state="collapsed",
     page_icon="🔍"
 )
-
-# Ocultar el menú de Streamlit (incluye GitHub icon)
-hide_streamlit_style = """
+st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     </style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-import pandas as pd
-import re, requests, base64, unicodedata, html
-from typing import List
-import os
-
-
+""", unsafe_allow_html=True)
 st.title("🔍 Buscador")
 
 # -------------------------------
-# FUNCIONES GITHUB (ocultas al usuario)
+# FUNCIONES GITHUB
 # -------------------------------
 def _get_github_headers():
     token = None
@@ -68,15 +64,18 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                 data.append({"name": f['name'], "content": content})
     return data
 
+# -------------------------------
+# PARSEO DE TRANSCRIPCIONES
+# -------------------------------
 def parse_transcription_text(name: str, text: str) -> pd.DataFrame:
     pattern = re.compile(r"\[([^\]]+)\]\s*(.*?)((?=\[)|$)", re.S)
     rows = []
     for idx, m in enumerate(pattern.finditer(text)):
         speaker = m.group(1).strip()
-        content = re.sub(r"\s+"," ", m.group(2).strip().replace('\r\n','\n')).strip()
+        content = re.sub(r"\s+", " ", m.group(2).strip().replace('\r\n', '\n')).strip()
         rows.append({"file": name, "speaker": speaker, "text": content, "block_index": idx})
     if not rows:
-        cleaned = re.sub(r"\s+"," ", text).strip()
+        cleaned = re.sub(r"\s+", " ", text).strip()
         rows.append({"file": name, "speaker": "UNKNOWN", "text": cleaned, "block_index": 0})
     return pd.DataFrame(rows)
 
@@ -85,10 +84,10 @@ def build_transcriptions_dataframe(files: List[dict]) -> pd.DataFrame:
     if dfs:
         return pd.concat(dfs, ignore_index=True)
     else:
-        return pd.DataFrame(columns=["file","speaker","text","block_index"])
+        return pd.DataFrame(columns=["file", "speaker", "text", "block_index"])
 
 # -------------------------------
-# FUNCIONES BÚSQUEDA
+# NORMALIZACIÓN Y RESALTADO
 # -------------------------------
 def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFD", text)
@@ -96,13 +95,10 @@ def normalize_text(text: str) -> str:
     return text.lower()
 
 def norm_and_mapping(orig: str):
-    mapping = []
-    norm_chars = []
+    mapping, norm_chars = [], []
     for i, ch in enumerate(orig):
         decomp = unicodedata.normalize('NFD', ch)
         base = ''.join(c for c in decomp if unicodedata.category(c) != 'Mn')
-        if base == '':
-            continue
         for b in base:
             mapping.append(i)
             norm_chars.append(b)
@@ -112,29 +108,31 @@ def highlight_html(orig_text: str, terms: list) -> str:
     norm, mapping = norm_and_mapping(orig_text)
     spans = []
     for term in terms:
-        if not term: continue
+        if not term:
+            continue
         start = 0
         while True:
             idx = norm.find(term, start)
-            if idx == -1: break
+            if idx == -1:
+                break
             s_orig = mapping[idx]
             e_orig = mapping[idx + len(term) - 1] + 1
             spans.append((s_orig, e_orig))
             start = idx + len(term)
-    if not spans: return html.escape(orig_text)
+    if not spans:
+        return html.escape(orig_text)
     spans.sort()
     merged = []
     cur_s, cur_e = spans[0]
-    for s,e in spans[1:]:
+    for s, e in spans[1:]:
         if s <= cur_e:
             cur_e = max(cur_e, e)
         else:
             merged.append((cur_s, cur_e))
-            cur_s, cur_e = s,e
+            cur_s, cur_e = s, e
     merged.append((cur_s, cur_e))
-    parts = []
-    last = 0
-    for s,e in merged:
+    parts, last = [], 0
+    for s, e in merged:
         parts.append(html.escape(orig_text[last:s]))
         parts.append(f"<b>{html.escape(orig_text[s:e])}</b>")
         last = e
@@ -144,7 +142,8 @@ def highlight_html(orig_text: str, terms: list) -> str:
 def highlight_preview(orig_text: str, terms: list, preview_len: int = 160) -> str:
     norm, mapping = norm_and_mapping(orig_text)
     for term in terms:
-        if not term: continue
+        if not term:
+            continue
         idx = norm.find(term)
         if idx != -1:
             match_start = mapping[idx]
@@ -160,44 +159,50 @@ def highlight_preview(orig_text: str, terms: list, preview_len: int = 160) -> st
             return prefix + marked + suffix
     return orig_text[:preview_len] + ("..." if len(orig_text) > preview_len else "")
 
+# -------------------------------
+# BUSQUEDA OPTIMIZADA ⚡
+# -------------------------------
+@st.cache_data(show_spinner=False)
 def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, all_words: bool=True) -> pd.DataFrame:
     expected_cols = ['file','speaker','text','block_index','match_preview']
     if df.empty or not query:
         return pd.DataFrame(columns=expected_cols)
-    results = []
-    flags = re.IGNORECASE
+
     query_terms = [t for t in normalize_text(query).split() if t]
-    for _, row in df.iterrows():
-        text = row['text'] or ""
-        norm_text = normalize_text(text)
-        try:
-            if use_regex and re.search(query, text, flags):
-                results.append(row.to_dict())
-            elif not use_regex:
-                if all_words and all(term in norm_text for term in query_terms):
-                    results.append(row.to_dict())
-                elif not all_words and any(term in norm_text for term in query_terms):
-                    results.append(row.to_dict())
-        except re.error:
-            return pd.DataFrame(columns=expected_cols)
-    res_df = pd.DataFrame(results)
-    if res_df.empty: return pd.DataFrame(columns=expected_cols)
+    if not query_terms:
+        return pd.DataFrame(columns=expected_cols)
+
+    s = df['text_norm']
+    if use_regex:
+        mask = s.str.contains(query, case=False, regex=True, na=False)
+    else:
+        if all_words:
+            mask = s.apply(lambda x: all(term in x for term in query_terms))
+        else:
+            mask = s.apply(lambda x: any(term in x for term in query_terms))
+
+    res_df = df[mask].copy()
+    if res_df.empty:
+        return pd.DataFrame(columns=expected_cols)
+
     res_df['match_preview'] = res_df['text'].apply(lambda t: highlight_preview(t, query_terms))
     return res_df[expected_cols]
 
+# -------------------------------
+# CONTEXTO Y COLORES
+# -------------------------------
 def show_context(df, file, block_idx, query_terms, context=4):
     sub_df = df[df['file'] == file].reset_index(drop=True)
     matches = sub_df.index[sub_df['block_index'] == block_idx].tolist()
     idx = matches[0] if matches else 0
-    start = max(idx - context, 0)
-    end = min(idx + context + 1, len(sub_df))
+    start, end = max(idx - context, 0), min(idx + context + 1, len(sub_df))
     for i in range(start, end):
         row = sub_df.loc[i]
         speaker = row['speaker']
         text_html = highlight_html(row['text'], query_terms)
-        bg_color = {"eva":"mediumslateblue","nacho":"salmon","lala":"#FF8C00"}.get(speaker.lower(), "#f0f0f0")
-        border_style = "2px solid yellow" if i==idx else "none"
-        text_color = "white" if bg_color.lower() not in ["#f0f0f0","salmon","#ff8c00"] else "black"
+        bg_color = {"eva": "mediumslateblue", "nacho": "salmon", "lala": "#FF8C00"}.get(speaker.lower(), "#f0f0f0")
+        border_style = "2px solid yellow" if i == idx else "none"
+        text_color = "white" if bg_color.lower() not in ["#f0f0f0", "salmon", "#ff8c00"] else "black"
         st.markdown(
             f"<div style='background-color:{bg_color};padding:4px;border-radius:4px;border:{border_style};color:{text_color};'><b>{html.escape(speaker)}:</b> {text_html}</div>",
             unsafe_allow_html=True
@@ -205,25 +210,28 @@ def show_context(df, file, block_idx, query_terms, context=4):
 
 def color_speaker_row(row):
     s = row["speaker"].strip().lower()
-    if s == "eva": return ["background-color: mediumslateblue"]*len(row)
-    if s == "nacho": return ["background-color: salmon"]*len(row)
-    if s == "lala": return ["background-color: #FF8C00"]*len(row)
-    return [""]*len(row)
+    if s == "eva": return ["background-color: mediumslateblue"] * len(row)
+    if s == "nacho": return ["background-color: salmon"] * len(row)
+    if s == "lala": return ["background-color: #FF8C00"] * len(row)
+    return [""] * len(row)
 
 # -------------------------------
-# CARGA AUTOMÁTICA DEL DATAFRAME (URL OCULTA)
+# CARGA AUTOMÁTICA
 # -------------------------------
-GITHUB_REPO_URL = "https://github.com/jarconett/c_especiales/"  # No se muestra al usuario
+GITHUB_REPO_URL = "https://github.com/jarconett/c_especiales/"
 if 'trans_df' not in st.session_state:
     with st.spinner("Cargando datos..."):
         files = read_txt_files_from_github(GITHUB_REPO_URL, path="transcripciones")
         if files:
+            df = build_transcriptions_dataframe(files)
+            # ✅ Precalcular texto normalizado para acelerar búsquedas
+            df['text_norm'] = df['text'].apply(normalize_text)
             st.session_state['trans_files'] = files
-            st.session_state['trans_df'] = build_transcriptions_dataframe(files)
+            st.session_state['trans_df'] = df
             st.success("Datos cargados correctamente ✅")
 
 # -------------------------------
-# BUSCADOR PARA USUARIO FINAL
+# INTERFAZ DE USUARIO
 # -------------------------------
 if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
     df = st.session_state['trans_df']
@@ -232,9 +240,8 @@ if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
     all_words = (match_mode == "Todas las palabras")
     speaker_filter = st.selectbox("Filtrar por orador", options=["(todos)"] + sorted(df['speaker'].unique().tolist()))
 
-    res = pd.DataFrame()
     if st.button("Buscar"):
-        res = search_transcriptions(df, query, all_words=all_words)
+        res = search_transcriptions(df, query, use_regex=False, all_words=all_words)
         query_terms = [t for t in normalize_text(query).split() if t]
         if speaker_filter != "(todos)":
             res = res[res['speaker'].str.lower() == speaker_filter.lower()]
@@ -243,8 +250,8 @@ if 'trans_df' in st.session_state and not st.session_state['trans_df'].empty:
             st.warning("No se encontraron coincidencias.")
         else:
             st.success(f"Encontradas {len(res)} coincidencias")
-            st.dataframe(res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1), use_container_width=True)
+            st.dataframe(res[['file', 'speaker', 'match_preview']].style.apply(color_speaker_row, axis=1),
+                         use_container_width=True)
             for i, row in res.iterrows():
-                with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
+                with st.expander(f"{i + 1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
                     show_context(df, row['file'], row['block_index'], query_terms, context=4)
-
