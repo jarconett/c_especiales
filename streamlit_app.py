@@ -92,8 +92,9 @@ def build_transcriptions_dataframe(files: List[dict]) -> pd.DataFrame:
 def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
-    return text.lower()
-
+    text = re.sub(r"\s+", " ", text)  # 💥 Normaliza todos los espacios
+    return text.lower().strip()
+    
 def norm_and_mapping(orig: str):
     mapping, norm_chars = [], []
     for i, ch in enumerate(orig):
