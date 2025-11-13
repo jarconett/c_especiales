@@ -160,42 +160,50 @@ def normalize_text(text: str) -> str:
 
 
 # --- Búsqueda optimizada con fuzzy ---
-def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, fuzzy_mode: str="palabra", threshold: int=80) -> pd.DataFrame:
+def search_transcriptions(
+    df: pd.DataFrame,
+    query: str,
+    use_regex: bool = False,
+    fuzzy_mode: str = "ninguno",
+    threshold: int = 80
+) -> pd.DataFrame:
+    """Búsqueda flexible: exacta, regex o fuzzy (palabra/contextual)."""
     if df.empty or not query:
         return pd.DataFrame(columns=["file","speaker","text","block_index","match_preview"])
 
-    flags = re.IGNORECASE
     query_norm = query.lower().strip()
-    results = []
+    results = pd.DataFrame()
 
-    # --- búsqueda vectorizada exacta o regex ---
+    # --- Búsqueda exacta o regex (vectorizada) ---
     if not use_regex:
         mask = df["text"].str.contains(query_norm, case=False, na=False)
-        results = df[mask].copy()
+        results = df.loc[mask].copy()
     else:
         try:
-            mask = df["text"].str.contains(query, flags=flags, regex=True, na=False)
-            results = df[mask].copy()
+            mask = df["text"].str.contains(query, flags=re.IGNORECASE, regex=True, na=False)
+            results = df.loc[mask].copy()
         except re.error:
             st.error("Regex inválida")
             return pd.DataFrame()
 
-    # --- búsqueda fuzzy si no hay coincidencias exactas ---
-    if results.empty and fuzzy_mode:
+    # --- Si no hay resultados exactos, usar fuzzy ---
+    if results.empty and fuzzy_mode != "ninguno":
         st.info(f"🔍 Búsqueda fuzzy activada (modo: {fuzzy_mode}, umbral: {threshold}%)")
         matched_rows = []
 
-        for _, row in df.iterrows():
-            text = row["text"].lower()
-            if fuzzy_mode == "palabra":
-                # palabra a palabra
-                for word in query_norm.split():
-                    score = fuzz.partial_ratio(word, text)
+        texts = df["text"].str.lower().tolist()
+        rows = df.to_dict("records")
+
+        if fuzzy_mode == "palabra":
+            query_terms = [t for t in query_norm.split() if t]
+            for text, row in zip(texts, rows):
+                for term in query_terms:
+                    score = fuzz.partial_ratio(term, text)
                     if score >= threshold:
                         matched_rows.append(row)
                         break
-            elif fuzzy_mode == "contextual":
-                # similitud global de frase completa
+        elif fuzzy_mode == "contextual":
+            for text, row in zip(texts, rows):
                 score = fuzz.partial_ratio(query_norm, text)
                 if score >= threshold:
                     matched_rows.append(row)
@@ -204,6 +212,20 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, f
 
     if results.empty:
         return pd.DataFrame(columns=["file","speaker","text","block_index","match_preview"])
+
+    # --- Crear preview ---
+    def make_preview(text):
+        idx = text.lower().find(query_norm)
+        if idx != -1:
+            start = max(0, idx - 30)
+            snippet = text[start:start + 160]
+            return ("..." if start > 0 else "") + snippet + ("..." if len(text) > start + 160 else "")
+        else:
+            return text[:160] + "..."
+
+    results["match_preview"] = results["text"].apply(make_preview)
+    return results[["file","speaker","text","block_index","match_preview"]]
+
 
     # --- generar previsualización ---
     def make_preview(text):
@@ -320,30 +342,31 @@ with repo_col:
 st.header("3) Buscar en transcripciones")
 if 'trans_df' in st.session_state:
     df = st.session_state['trans_df']
-    q_col, opt_col = st.columns([3,1])
+    q_col, opt_col = st.columns([3, 1])
+
     with q_col:
         query = st.text_input("Palabra o frase a buscar")
+
     with opt_col:
         use_regex = st.checkbox("Usar regex", value=False)
-        speaker_filter = st.selectbox("Filtrar por orador", options=["(todos)"] + sorted(df['speaker'].unique().tolist()))
+        speaker_filter = st.selectbox(
+            "Filtrar por orador",
+            options=["(todos)"] + sorted(df['speaker'].unique().tolist())
+        )
         fuzzy_mode = st.radio("Modo fuzzy", options=["ninguno", "palabra", "contextual"], index=0)
         threshold = st.slider("Umbral similitud (%)", 60, 95, 80)
 
-    # 🔍 Opciones fuzzy
-    fuzzy_mode = st.checkbox("Permitir errores menores (búsqueda difusa)", value=True)
-    threshold = st.slider("Sensibilidad fuzzy (mayor = más estricta)", 60, 90, 75)
-
     if st.button("Buscar"):
-        res = search_transcriptions(df, query, use_regex, fuzzy_mode if fuzzy_mode != "ninguno" else None, threshold)
+        res = search_transcriptions(df, query, use_regex, fuzzy_mode, threshold)
         if speaker_filter != "(todos)":
             res = res[res['speaker'] == speaker_filter]
+
         if res.empty:
             st.warning("No se encontraron coincidencias.")
         else:
             st.success(f"Encontradas {len(res)} coincidencias")
             st.dataframe(
-                res[['file','speaker','match_preview'] + (['fuzzy_score'] if 'fuzzy_score' in res else [])]
-                .style.apply(color_speaker_row, axis=1),
+                res[['file', 'speaker', 'match_preview']].style.apply(color_speaker_row, axis=1),
                 use_container_width=True
             )
             for i, row in res.iterrows():
