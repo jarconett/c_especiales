@@ -241,13 +241,29 @@ st.header("2) Leer transcripciones")
 repo_col, _ = st.columns(2)
 with repo_col:
     gh_url = st.text_input("Repo público GitHub (carpeta transcripciones)", value="https://github.com/jarconett/c_especiales/")
-    if gh_url and ('trans_files' not in st.session_state or st.button("Recargar archivos .txt desde GitHub")):
+    
+    # Carga automática al inicio si no hay datos
+    if gh_url and 'trans_files' not in st.session_state:
         with st.spinner("Cargando archivos .txt desde GitHub..."):
             files = read_txt_files_from_github(gh_url, path="transcripciones")
             if files:
                 st.session_state['trans_files'] = files
                 st.session_state['trans_df'] = build_transcriptions_dataframe(files)
                 st.success(f"Cargados {len(files)} archivos y DataFrame con {len(st.session_state['trans_df'])} bloques")
+    
+    # Botón para recargar manualmente
+    if st.button("🔄 Recargar archivos .txt desde GitHub", key="reload_transcriptions"):
+        if gh_url:
+            with st.spinner("Recargando archivos .txt desde GitHub..."):
+                files = read_txt_files_from_github(gh_url, path="transcripciones")
+                if files:
+                    st.session_state['trans_files'] = files
+                    st.session_state['trans_df'] = build_transcriptions_dataframe(files)
+                    st.success(f"Recargados {len(files)} archivos y DataFrame con {len(st.session_state['trans_df'])} bloques")
+                else:
+                    st.warning("No se encontraron archivos .txt en el repositorio")
+        else:
+            st.error("Por favor, ingresa una URL de repositorio GitHub válida")
 
 
 # --- UI: Search ---
