@@ -3,73 +3,73 @@
 [Nacho]
 Cuerpos Especiales, con Nacho García y Lala Chus, en Europa FM. Buenos días, son las 7 y 25 segundos de la mañana, las 6 y 25 segundos, bueno, y 29 ya, en Canarias, y estás escuchando Cuerpos Especiales en Europa FM. Yo soy Nacho García.
 
-[Alba]
+[Eva]
 Y yo no soy Lala Chus, soy Alba Cordero.
 
 [Nacho]
 Lala Chus tampoco está hoy.
 
-[Alba]
+[Eva]
 Y yo me he trincherado aquí ya.
 
 [Nacho]
 Están puestos de acuerdo Lala Chus y Eva Soriano en faltar las dos, un jueves y un viernes, como si se hubieran ido juntas de viaje.
 
-[Alba]
+[Eva]
 Es verdad.
 
 [Nacho]
 Como si hubieran hecho puente las dos juntas.
 
-[Alba]
+[Eva]
 Sí.
 
 [Nacho]
 Están puestos de acuerdo, y estás tú aquí. ¿Qué tal estás, Alba? ¿Cómo lo estás llevando?
 
-[Alba]
+[Eva]
 Bien, la verdad, bastante bien, ya es como meh, pues yo ya, total, me siento aquí.
 
 [Nacho]
 Ya empiezas a hacer cosas de presentadora.
 
-[Alba]
+[Eva]
 Sí, que es ruidos.
 
 [Nacho]
 Sí. Que es lo que hace una presentadora, ruidos.
 
-[Alba]
+[Eva]
 Ruidos. He hecho meh, que es lo que hace Eva.
 
 [Nacho]
 Ah, es lo que hace Eva.
 
-[Alba]
+[Eva]
 Claro.
 
 [Nacho]
 Cuidado que se empieza así y se termina diciendo, pongo un taxi. Niño, que no llega.
 
-[Alba]
+[Eva]
 Ojalá.
 
 [Nacho]
 ¿Qué vas a hacer el fin de semana?
 
-[Alba]
+[Eva]
 Pues mira, son los conciertos de la hispanidad aquí en Madrid, y voy a ver a Niña Polaca esta noche.
 
 [Nacho]
 Vas a ver a Niña Polaca.
 
-[Alba]
+[Eva]
 A Niña Polaca hoy, y mañana toca a Liz.
 
 [Nacho]
 Me gusta mucho preguntarle a Alba Cordero qué va a hacer el fin de semana, porque siempre hace cosas guays de contar.
 
-[Alba]
+[Eva]
 Siempre conciertos, todo el rato.
 
 [Nacho]
@@ -77,37 +77,37 @@ Alba Cordero es una agenda cultural. Sí, soy. O sea, me parece maravilloso.
 
 ¿Tú qué vas a hacer el fin de semana? Nada.
 
-[Alba]
+[Eva]
 Perfecto también.
 
 [Nacho]
 Nada.
 
-[Alba]
+[Eva]
 Es mi plan B, o sea, quiero decir, si no tuviese conciertos, sería mi plan B.
 
 [Nacho]
 Nada. He quedado con unos amigos, no vais a saber de dónde. De Valladolid.
 
-[Alba]
+[Eva]
 Vale.
 
 [Nacho]
 Pero vienen ellos a Madrid, y me los llevaré a hacer cosas.
 
-[Alba]
+[Eva]
 Tendrás que enseñarle las cosas de aquí, en plan, El Oso y el Madroño.
 
 [Nacho]
 No.
 
-[Alba]
+[Eva]
 Las obras.
 
 [Nacho]
 Creo que no va a ser eso.
 
-[Alba]
+[Eva]
 Los atascos.
 
 [Nacho]
@@ -120,7 +120,7 @@ El que no sé qué va a hacer este fin de semana es el invitado que tenemos hoy 
 [Orador 9]
 Es una deuda que tienes que pagar. ¿Cómo se pagan las deudas de la muerte? Listo.
 
-[Alba]
+[Eva]
 Sí, sí. Suena esto. Y mira, ya estoy deseando de que llegue Daniel Guzmán para decirle, Daniel, nice to meet you, como este tema de Miles Smith.
 
 [Nacho]
@@ -128,13 +128,13 @@ Pero no os dais vergüenza todo el rato pensando en el fin de semana, en que que
 
 Hay que disfrutar el presente. Como hace, por ejemplo, la actualidad de las 7.
 
-[Alba]
+[Eva]
 El Ministerio de Educación se plantea bajar las ratios de alumnos de primaria y la ESO en toda España.
 
 [Nacho]
 Las ratios son el número de alumnos por profesor, ¿no?
 
-[Alba]
+[Eva]
 Eso es. La ratio de estudiantes por clase llegaría a un máximo. Llegaría a un máximo de 22 chiquillos en educación primaria en vez de 25, y a 25 en la ESO en lugar de los 30 actuales.
 
 Además, el alumnado con necesidades educativas especiales contará doble a efectos de la ratio de estudiantes por aula en toda España. Esta nueva situación tiene la intención de aplicarse de forma escalonada a partir de septiembre de 2027. Yo creo que lo hacen porque huele muchísimo a sudor en las clases después de Educación Física.
@@ -142,19 +142,19 @@ Además, el alumnado con necesidades educativas especiales contará doble a efec
 [Nacho]
 Totalmente. Lo hacen para bajar un poco el olor a calcetín mojado.
 
-[Alba]
+[Eva]
 Sí, exactamente.
 
 [Nacho]
 Efectivamente. De hecho, en cuerpos especiales podríamos aplicarnos el cuento también.
 
-[Alba]
+[Eva]
 Vale, hay que bajar la ratio de esto.
 
 [Nacho]
 Hay que bajar la ratio de los morning porque no dejamos de estar en un sitio con la ventana cerrada 6 horas al día, que al final entre lo que llegas y te vas son 6 horas todos los días, y aquí al final, pues yo qué sé, pues falta que pongamos unas esterillas y hagamos unos estiramientos.
 
-[Alba]
+[Eva]
 No, por favor. Es mi peor pesadilla.
 
 [Nacho]
@@ -169,7 +169,7 @@ Hay veces que echamos más horas y claro, eso pasa factura. Pasa factura en los 
 
 Más horas que el reloj.
 
-[Alba]
+[Eva]
 Javi tiene una cama ahí detrás.
 
 [Nacho]
@@ -180,7 +180,7 @@ Cuando he dicho huele, he dicho una mirada entre vosotros. Huele.
 [Nacho]
 Nos hemos mirado Raquel y yo como diciendo, sí, sí. Hay veces que entras en el estudio y dices, voy a salir otra vez.
 
-[Alba]
+[Eva]
 Sí, porque parece que hay aquí ya no 30 adolescentes, sino 50.
 
 [Nacho]
@@ -188,7 +188,7 @@ Sí, sí, eso es cierto. Huele a persona. Y te voy a decir una cosa.
 
 Así entre nosotros.
 
-[Alba]
+[Eva]
 Que no les está escuchando nadie.
 
 [Nacho]
@@ -196,7 +196,7 @@ Este estudio es bastante más grande que el que teníamos antes. Pero antes hac�
 
 Total.
 
-[Alba]
+[Eva]
 Era una caja de zapatos aquello.
 
 [Nacho]
@@ -212,7 +212,7 @@ O sea, lo pongo encima de la mesa. No pasa nada porque... No, sigue pasando.
 
 Sigue pasando un poco, ¿verdad? Sigue pasando un poco.
 
-[Alba]
+[Eva]
 Pero a mí me gusta que...
 
 [Nacho]
@@ -220,13 +220,13 @@ Que pongamos ambientadores como en Seven. Ojalá. Que lo pongamos todo lleno.
 
 Ambientadores de... Ambientadores de pino.
 
-[Alba]
+[Eva]
 De estos de pino colgados en el trípode de donde está el móvil grabando y así.
 
 [Nacho]
 Me parecería bien. Bueno, que van a bajar las ratios por alumno.
 
-[Alba]
+[Eva]
 Que me parece bien, la verdad.
 
 [Nacho]
@@ -238,19 +238,19 @@ Y la...
 [Nacho]
 Siguiente noticia.
 
-[Alba]
+[Eva]
 Vale.
 
 [Nacho]
 No me acuerdo nunca de eso.
 
-[Alba]
+[Eva]
 Ravenclaw.
 
 [Nacho]
 Ravenclaw. Esto había hecho...
 
-[Alba]
+[Eva]
 ¿Quién le importa, no?
 
 [Nacho]
@@ -272,19 +272,19 @@ Llevo... Tengo 42 años. He llegado hasta aquí.
 
 He llegado hasta aquí pensando... Bueno, pero dime el nombre de beneficiario también, porque es que si no lo encaja me lo va a decir pensando que bien hago todas las transferencias. No se estaba haciendo.
 
-[Alba]
+[Eva]
 No se estaba haciendo. A lo mejor tú le has hecho una transferencia a un señor de Murcia pensando que estabas pagando el alquiler de tu casa de Madrid y bueno, pues la vida.
 
 [Nacho]
 Se ha hecho antes lo del tapón de la botella.
 
-[Alba]
+[Eva]
 Se ha hecho, se ha hecho.
 
 [Nacho]
 Para comprobar que en Europa se ha hecho antes lo del tapón de la botella. Que yo me alegro por las focas, pero tú sabes... Me alegro por las focas, pero ¿cuándo se ha equivocado una foca del Ártico al hacer una transferencia?
 
-[Alba]
+[Eva]
 Nunca.
 
 [Nacho]
@@ -292,7 +292,7 @@ Nunca. Nunca se equivocó una foca a la hora de hacer una transferencia. ¿Sabes
 
 Y bueno, no te preocupes mamá. ¿Sabes cuántas veces le he dicho a mi madre? Rosa, te pido perdón.
 
-[Alba]
+[Eva]
 Está tu madre esperando que le preguntes qué tal y solo le estás diciendo números.
 
 [Nacho]
@@ -300,25 +300,25 @@ Números de cuenta. ¿Sabes cuántas veces le he dicho a mi madre? Mamá, no te 
 
 Y esto es desde ayer.
 
-[Alba]
+[Eva]
 Llevas muchos años engañando a tu madre por culpa de los bancos.
 
 [Nacho]
 Rosa, te pido perdón.
 
-[Alba]
+[Eva]
 Pero piensa que ahora la gente que le hacía transferencias a Brad Pitt o a un Brad Pitt que a saber de dónde salía... Ahora lo dirá, claro. Ahora dirá, no soy Brad Pitt, soy Brad Pot.
 
 [Nacho]
 Claro, ahora la gente que ponga... Claro, pero no te puede decir quién es.
 
-[Alba]
+[Eva]
 No te pone, soy... Hola, soy Brad Pitt, guapa, dame 20 euros.
 
 [Nacho]
 Claro, pero entonces tú pondrás nombre de beneficiario Brad Pitt, número de cuenta este y dirá, Brad Pitt no es...
 
-[Alba]
+[Eva]
 No es Brad Pitt, es José Manuel de Tomelloso.
 
 [Nacho]
@@ -330,31 +330,31 @@ De 45 metros, perdón, el de 45 mil todavía, espérate dos años. Y 100 mil luc
 
 Un año más, Vigo y su alcalde tienen la misión de hacer las navidades más espectaculares del mundo y convertirse en la ciudad más navideña de Europa.
 
-[Alba]
+[Eva]
 A ver, Vigo no, Vigo no está obligada a nada, está la gente de Vigo diciendo por favor, estamos a 10 de octubre, ¿me puedes dejar en paz, Abel?
 
 [Nacho]
 Estamos bien, de verdad, o sea, ¿hace falta un árbol de 45 metros con árboles de 8 y 10 metros alrededor? Que parece un jefe de final de fase, ¿sabes? Con el árbol de 45 metros y árboles de...
 
-[Alba]
+[Eva]
 Es Gru y los Minions al lado.
 
 [Nacho]
 Sí, sí, sí, totalmente, o sea, no hace falta, de verdad. Notaréis, si conocéis gente de Vigo, los distinguiréis del resto de personas porque están morenos en invierno, gracias a las luces LED.
 
-[Alba]
+[Eva]
 Están más morenos la gente de Vigo que los de Marbella.
 
 [Nacho]
 De hecho, Vigo acaba de inventar lo que se va a llamar la marca del abrigo, que es cuando estás moreno pero hasta el cuello...
 
-[Alba]
+[Eva]
 Ah, me gusta muchísimo.
 
 [Nacho]
 Te está dando el abrigo, ¿sabes?
 
-[Alba]
+[Eva]
 Me gusta muchísimo. En fin. Estamos con los apagones y es culpa de...
 
 Hay alerta de apagones y es Abel Caballero.
@@ -362,7 +362,7 @@ Hay alerta de apagones y es Abel Caballero.
 [Nacho]
 Es Abel Caballero todo, es Abel Caballero. Gente de Galicia, acordaos de apagar los faros para que no molestan a las luces del árbol de Navidad.
 
-[Alba]
+[Eva]
 Y hasta aquí la actualidad de las 7. ...en Europa FM y yo he sacado ya la navajilla para pegarme con Nacho García en Dupidó.
 
 [Nacho]
@@ -371,13 +371,13 @@ Hola, buenos días, Alba. Buenos días, Nacho, ¿cómo estáis? Soy Dani Piquera
 [Nacho]
 No sabéis, no sabes, Alba Cordero, a lo que te expones.
 
-[Alba]
+[Eva]
 Bueno, a lo mejor no sabes a lo que te expones tú.
 
 [Nacho]
 He ido de chill con Eva Soriano, pero soy tu Eva Soriano.
 
-[Alba]
+[Eva]
 Dios mío.
 
 [Nacho]
@@ -396,13 +396,13 @@ Muchos de los famosos que conocemos tuvieron un trabajo de persona enorme antes 
 
 Voy a empezar a poner a vallas en el campo, porque esto está siendo un sin dios.
 
-[Alba]
+[Eva]
 Cuando no estoy yo, esto es un circo. Y ahora que para un día que estoy yo me pones 27 millones de normas.
 
 [Nacho]
 De hecho, he aprovechado.
 
-[Alba]
+[Eva]
 Vale, amigo Daniel, gracias.
 
 [Nacho]
@@ -438,7 +438,7 @@ Muy aclarado, claro, está muy intrínseco. Creo que me puedo volver loco si int
 
 La siguiente pista se llama profesión compartida. Otros famosos que trabajaron de lo mismo que Christopher Walken antes de hacerse famosos han sido Josef Delmont, director austriaco, o Cliff Petty.
 
-[Alba]
+[Eva]
 ¡Famosos, por favor!
 
 [Nacho]
@@ -458,31 +458,31 @@ Palabras relacionadas con el antiguo trabajo de Christopher Walken. Y os digo do
 
 silla. Y la segunda es... jaula.
 
-[Alba]
+[Eva]
 ¡Lo tengo!
 
 [Nacho]
 ¡Madre mía!
 
-[Alba]
+[Eva]
 Lo tengo, lo tengo. ¿Lo tengo que apuntar, no?
 
 [Nacho]
 Sí, claro.
 
-[Alba]
+[Eva]
 Vale. Es que soy nueva, perdóname.
 
 [Nacho]
 Lo puedes apuntar, pero que no te vea tu compañero. Estoy indignado. No, no lo estoy mirando, no lo estoy mirando.
 
-[Alba]
+[Eva]
 Lo pongo así como cuando estás haciendo un examen y no quieres que te copien.
 
 [Nacho]
 De todas formas, si ella lo tiene antes, no tiene sentido que te copie, porque entonces si fallas tú fallo yo, y si aciertas tú has acertado tú.
 
-[Alba]
+[Eva]
 Ah, claro, es verdad.
 
 [Nacho]
@@ -535,7 +535,7 @@ Vale, esto voy a representar. Esto no lo va a ver nadie en la radio, pero es que
 [Nacho]
 Ahora mismo Dani Piqueras está mirando su cucu de un lado al otro del estudio de una forma bastante cómica.
 
-[Alba]
+[Eva]
 O sea, no puedo dejar de mirarle. Está bailando muchísimo.
 
 [Nacho]
@@ -545,31 +545,31 @@ Espero que lo tengáis. ¿Pero qué locura de canción es esta? ¿De dónde ha s
 
 Esta es una canción que ahora cuando lo digáis me voy a decir de dónde ha salido porque me ha parecido fascinante.
 
-[Alba]
+[Eva]
 Vale, entonces yo, que he sido la primera, ahora tengo que decir la solución y un seco dúpido.
 
 [Nacho]
 De seco nada.
 
-[Alba]
+[Eva]
 Bueno, ya veremos.
 
 [Nacho]
 De seco nada porque se lo lleva el otro.
 
-[Alba]
+[Eva]
 Uy, ¿por no modular la voz?
 
 [Nacho]
 Claro, porque esto es el concurso de dúpido.
 
-[Alba]
+[Eva]
 Mi respuesta es...
 
 [Nacho]
 Hay que modular la voz, Alba, si no la modulas bien no es buena.
 
-[Alba]
+[Eva]
 Que no me mires. Las soluciones. Domador de leones.
 
 Dúpido.
@@ -577,7 +577,7 @@ Dúpido.
 [Nacho]
 No ha modulado.
 
-[Alba]
+[Eva]
 ¿Recordáis?
 
 [Nacho]
@@ -585,7 +585,7 @@ Que no ha modulado la voz. Estoy aquí haciendo el ridículo cada vez que partic
 
 Pero es que no puede ser, eso no son las reglas.
 
-[Alba]
+[Eva]
 Soy de la escuela de Alsina. Alsina grita dúpido. No lo creo.
 
 [Nacho]
@@ -596,7 +596,7 @@ Domador de circo. Dúpido. Efectivamente, domador de circo.
 
 Dúpido. No creo que Nicolás se lo haya levantado a Alba porque no ha modulado la voz. Las reglas son clarísimas.
 
-[Alba]
+[Eva]
 Perdona, me voy a ir yo. Me voy a bajar a la calle. O sea, esto es lo peor que me habéis hecho en cinco temporadas que llevo aquí desde el día uno.
 
 Puse la primera piedra a este programa y se me están ninguneando. Yo no quiero saber nada más. Paso, adiós.
@@ -632,7 +632,7 @@ Sí. Yo creo que en Montreal están haciendo lo que sea por tener el carnal de f
 [Nacho]
 Adoptando las ardillas. Fandillas, los Pokémon, todo. Todo, todo, todo, todo.
 
-[Alba]
+[Eva]
 A lo mejor solo quieren hacer la colección en plan quiero chip, quiero chop, quiero chip, quiero chop. Todos, dame todos.
 
 [Orador 5]
@@ -641,7 +641,7 @@ Por favor. ¿Por qué limitan esto solo a Montreal? Porque yo creo que aquí nos
 [Nacho]
 Escucha, nada me volvería más loco que ser el padre de una ardilla.
 
-[Alba]
+[Eva]
 ¿Cómo llamarías a tu ardilla, bebé?
 
 [Nacho]
@@ -649,7 +649,7 @@ Gonzalo. Yo lo llamaría Gonzalo, tío. Y lo matricularía en Ingeniería Quími
 
 Es que sería la mejor ardilla del mundo.
 
-[Alba]
+[Eva]
 Tu hijo Milo y tu ardilla Gonzalo.
 
 [Nacho]
@@ -660,7 +660,7 @@ Pero esta no es la noticia, Dani. Bueno, pues la agencia tiene más de... La age
 
 La agencia tiene más de mil ardillas...
 
-[Alba]
+[Eva]
 Ojalá la agencia de representación de ardillas.
 
 [Nacho]
@@ -671,19 +671,19 @@ Y darles de comer tres veces al día. Bueno, no son tan simples los requisitos.
 [Nacho]
 Tener una habitación para el animal, no lo tengo ni para mí.
 
-[Alba]
+[Eva]
 En Madrid no se puede ya. En España en general.
 
 [Nacho]
 En España no se puede.
 
-[Alba]
+[Eva]
 600 euros por una habitación para una ardilla, bebé.
 
 [Nacho]
 Efectivamente, en Montreal te dan un crédito si dices que tienes habitación de ardilla. ¿Tienes casa con habitación para ardilla? Pida lo que quiera usted.
 
-[Alba]
+[Eva]
 Claro, hombre. Te pica aquí a una mariscada.
 
 [Nacho]
@@ -694,25 +694,25 @@ ADN alienígena encontrado en humanos.
 [Nacho]
 Lo sabía. Era cuestión de que en algún hostal enciendan la luz negra e iba a salir.
 
-[Alba]
+[Eva]
 ¿Os acordáis de un programa que había en Land TV que era de ir a visitar habitaciones, era como para elegir pareja, eligiendo según las habitaciones, e ibas ahí con la luz azul.
 
 [Orador 5]
 Ah, y eso lo hacían en Next también.
 
-[Alba]
+[Eva]
 ¿Eh?
 
 [Orador 5]
 Lo hacían en Next también.
 
-[Alba]
+[Eva]
 Es verdad, lo hacían en Next, programa de aquí de Neox, increíble.
 
 [Nacho]
 Mientras no lo hagamos aquí en el estudio.
 
-[Alba]
+[Eva]
 No, por favor.
 
 [Nacho]
@@ -729,7 +729,7 @@ Una pregunta, el microscopio con el que Max Rempel ha analizado las muestras, ¿
 [Nacho]
 Max Rempel, que tiene el grupo de WhatsApp con sus pacientes, ¿qué es? Encuentros en la tercera desfase.
 
-[Alba]
+[Eva]
 Me gustaría mucho, perdón, hablar con esta gente. A ver tus trazas de alienígena.
 
 [Nacho]
@@ -740,31 +740,31 @@ Yo cago con la luz apagada y se ve. Recuerdos de las siete. Pasa Máquina, bueno
 
 Son las ocho de la mañana, a las siete en Canarias, y estás escuchando Cuerpos Especiales. Os habla Nacho García, el mejor presentador vallisoletano cordobés de la historia.
 
-[Alba]
+[Eva]
 Ojo, eh. Chi y yo, vuestra presentadora de Emergencia Favorita, Alba Cordero.
 
 [Nacho]
 A ver, es que es verdad que si eliges un grupo de gente en el que estés tú solo, eres el mejor.
 
-[Alba]
+[Eva]
 Es verdad.
 
 [Nacho]
 O sea, si filtras mucho, solo quedas tú.
 
-[Alba]
+[Eva]
 ¿Habrá mucha más gente que pueda decir vallisoletano cordobés?
 
 [Nacho]
 No tanta, como parece.
 
-[Alba]
+[Eva]
 No, ¿verdad? Ni siquiera dentro de tus hermanos, ¿no?
 
 [Nacho]
 No, claro, porque mis hermanos son de Acoruña, todos.
 
-[Alba]
+[Eva]
 Esto es increíble.
 
 [Nacho]
@@ -772,7 +772,7 @@ Es que mi familia vivió en Acoruña mucho tiempo, luego vivió en Córdoba y lu
 
 Digo, mamá, si no digo nada de eso. Ya se habían ido todos mis hermanos de casa.
 
-[Alba]
+[Eva]
 Yo soy yo solo, mami.
 
 [Nacho]
@@ -782,49 +782,49 @@ Mi ojito derecho, hombre. No digas eso. Mi ojito derecho, mi ojito derecho, me d
 
 Mamá, tengo 35 años. Ah, es verdad, está bien. Es cierto que si acotas lo suficiente, solo llegas tú.
 
-[Alba]
+[Eva]
 Solo eres tú, sí, sí.
 
 [Nacho]
 Solo quedas tú, totalmente.
 
-[Alba]
+[Eva]
 Y mira, te voy a contar. Se va a pasar por el estudio para hablarnos de La Deuda, su tercera película. Como director, el mítico Roberto de Aquí no hay quien viva, Daniel Guzmán.
 
 [Nacho]
 Del 1 al 10, Alba Cordero. ¿Cómo de histérica estás hoy porque venga Daniel Guzmán?
 
-[Alba]
+[Eva]
 Pues a las 8, que todavía no está aquí, te puedo ser sincera y decir 300. Cuando venga, yo voy a ser una profesional de los pies a cabeza. Y nadie va a notar que yo estoy chillando por dentro.
 
 [Nacho]
 Estamos hablando de que hoy no está Lala Chus en el programa, pero está Alba Cordero, que es la otra loca de la nostalgia de este programa.
 
-[Alba]
+[Eva]
 Y en Aquí no hay quien viva, en concreto, gano a Lala y gano a cualquier persona que se me ponga por delante. Entonces, bueno, pues la vida.
 
 [Nacho]
 Bueno, mucho ánimo.
 
-[Alba]
+[Eva]
 Espero que estará todo bien porque yo soy una persona super profesional y majísima y ya cuando se vaya, pues lloraré y estará todo bien.
 
 [Nacho]
 Y todo fenomenal. Bueno, recordaros más cosas que por fin podréis descubrir una nueva versión de vosotros mismos después de un viaje a la India gracias a nuestro concurso Pilla la cita y gana la guita.
 
-[Alba]
+[Eva]
 Y hoy jugamos por la cifra bien resultona de 3.500 euros.
 
 [Nacho]
 Qué vergüenza. Pero cómo vamos a 3.500 euros.
 
-[Alba]
+[Eva]
 3.500 euros.
 
 [Nacho]
 Pero no modula nada. A ver cómo modula. A ver cómo has modulado.
 
-[Alba]
+[Eva]
 Euros. Es todo lo que puedo modular. Pero puedo hacer gestos con las manos, aunque no se me vea porque es radio.
 
 Pero yo la energía la tengo.
@@ -832,19 +832,19 @@ Pero yo la energía la tengo.
 [Nacho]
 Claro.
 
-[Alba]
+[Eva]
 Te lo prometo.
 
 [Nacho]
 Y la canción no la vas a cantar.
 
-[Alba]
+[Eva]
 En absoluto. O sea, mira, ahora soltaremos una pregunta e inmediatamente la subiremos a los stories de nuestra cuenta de Instagram. La persona que responda correctamente en el número 16 entrará en directo hacia las 9 menos 20 para luchar por esos 3.500 euros.
 
 [Nacho]
 Y hoy, atención, porque la pregunta a la que hay que responder correctamente es la siguiente. ¿De qué tipo de duelo nos habló ayer Santos Solano?
 
-[Alba]
+[Eva]
 Venga, ahora ya todas al Instagram a contestar rápido y a llevaros.
 
 [Nacho]
@@ -852,7 +852,7 @@ Era un goloso tontorrón y sexy 7, pero ha evolucionado hasta convertirse en la 
 
 Buenos días.
 
-[Alba]
+[Eva]
 Buenos días, Rey. ¿Qué tal?
 
 [Nacho]
@@ -876,7 +876,7 @@ Los que se duchan con agua fría y los que calientan ollas. Yo paso, paso. Calie
 
 O sea, no puedo respirar con agua fría. Es que mi madre me enseñó que se calientan ollas, que no pasa nada.
 
-[Alba]
+[Eva]
 No somos salvajes, por supuesto.
 
 [Nacho]
@@ -884,19 +884,19 @@ Claro, con agua fría no. Y, de hecho, tengo el pelo también penadito porque el
 
 No hay laca, chicos. No he ido a la peluquería. Es el champú que está el pelo tieso porque la olla se acababa y, claro, ya no se podía hacer nada.
 
-[Alba]
+[Eva]
 Si te echo agua empieza a salir espuma.
 
 [Nacho]
 Sí, sí. Y no se puede hacer nada más ya. Esto es todo lo limpio que puedo venir hoy.
 
-[Alba]
+[Eva]
 Creo que ahora quiero echarle agua. Lo siento. Ahora tengo un pensamiento intrusivo que es como quiero lavarte la cabeza en directo.
 
 [Nacho]
 Quiero ver qué pasa. Quiero aclararte esa cabeza.
 
-[Alba]
+[Eva]
 Exactamente.
 
 [Nacho]
@@ -911,7 +911,7 @@ Entonces tienes que tener otra olla de agua fría e ir haciendo mezclas en un ca
 [Nacho]
 Y yo tengo una olla grande y lo otro son dos cazos. Entonces ha sido como tenía ahí toda la cubertería en plan de repente parecía la teletienda y estaba con un cuenco echándome cosas por ahí. De rodillas.
 
-[Alba]
+[Eva]
 Como si te estuvieses haciendo un ritual.
 
 [Nacho]
@@ -919,13 +919,13 @@ Me sentía un poco la sirenita en plan duchándome así con una concha. Que se d
 
 Pues así me sentía un poco también. Me parece maravilloso.
 
-[Alba]
+[Eva]
 Pero esto es increíble.
 
 [Nacho]
 Ha sido guay.
 
-[Alba]
+[Eva]
 ¿Y estás bien ahora?
 
 [Nacho]
@@ -933,19 +933,19 @@ Estoy bien porque no hacía mucho frío. Cuidado. Esto pasa en enero, chicos.
 
 Eso te iba a decir.
 
-[Alba]
+[Eva]
 Menos mal que viene el cambio climático.
 
 [Nacho]
 Estamos a 10 de octubre con 30 grados. Eso es.
 
-[Alba]
+[Eva]
 Perfecto.
 
 [Nacho]
 ¿Nos da tiempo a alguna noticia? Nos da tiempo a una. Venga, vamos.
 
-[Alba]
+[Eva]
 El Ministerio de Educación se plantea bajar las ratios de alumnos de primaria y la ESO en toda España. La ratio de estudiantes por clase llegaría a un máximo de 22 chiquillos en educación primaria, en vez de 25, y a 25 en la ESO en lugar de los 30 actuales. Además, el alumnado con necesidades educativas especiales contará doble a efectos de la ratio de estudiantes por aula en toda España.
 
 Esta nueva situación tiene la intención de aplicarse de forma escalonada a partir de septiembre de 2027. Una cosa, la gente está comprando entradas con esta antelación, pues a la gente le llegará el cambio de ratio con el concierto de no sé quién que se haya comprado para cuando venga el gira en 2027.
@@ -961,7 +961,7 @@ Abrirme eso, que aquí huele a humanidad, que me decían siempre en nuestra clas
 
 En mi colegio, bueno, en mi instituto ya, hicimos un agujero en la pared.
 
-[Alba]
+[Eva]
 ¿En serio?
 
 (Este archivo dura más de 30 minutos. Actualizar a Ilimitado en TurboScribe.ai para transcribir archivos de hasta 10 horas.)
