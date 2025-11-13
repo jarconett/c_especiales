@@ -2,6 +2,7 @@ import streamlit as st
 from moviepy.editor import AudioFileClip
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata
 from typing import List
+from rapidfuzz import fuzz
 
 # -------------------------------
 # CONFIGURACIÓN DE LA APP
@@ -158,8 +159,9 @@ def normalize_text(text: str) -> str:
     return text.strip().lower()
 
 
-def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, phrase_mode: bool=True) -> pd.DataFrame:
-    """Búsqueda optimizada (vectorizada, sin iterrows, normalizada una sola vez)."""
+# --- Búsqueda optimizada con fuzzy ---
+def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, phrase_mode: bool=True, fuzzy: bool=True, threshold: int=75) -> pd.DataFrame:
+    """Búsqueda optimizada (vectorizada) con fallback difuso usando rapidfuzz."""
     if df.empty or not query:
         return pd.DataFrame(columns=["file","speaker","text","block_index","match_preview"])
 
@@ -170,6 +172,7 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, p
 
     mask = pd.Series([False] * len(df))
 
+    # --- Paso 1: búsqueda directa ---
     if use_regex:
         try:
             mask = df["text_norm"].str.contains(norm_query, flags=re.IGNORECASE, regex=True, na=False)
@@ -184,9 +187,19 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, p
             mask = df["text_norm"].apply(lambda t: all(term in t for term in terms))
 
     res_df = df.loc[mask, ["file","speaker","text","block_index"]].copy()
+
+    # --- Paso 2: Fuzzy matching si no hay resultados exactos ---
+    if fuzzy and res_df.empty:
+        with st.spinner("Buscando coincidencias aproximadas..."):
+            scores = df["text_norm"].apply(lambda t: fuzz.partial_ratio(norm_query, t))
+            df["fuzzy_score"] = scores
+            res_df = df.loc[df["fuzzy_score"] >= threshold, ["file","speaker","text","block_index","fuzzy_score"]].copy()
+            res_df = res_df.sort_values("fuzzy_score", ascending=False)
+
     if res_df.empty:
         return res_df
 
+    # --- Previsualización del fragmento encontrado ---
     def make_preview(text):
         tnorm = normalize_text(text)
         qnorm = norm_query
@@ -199,7 +212,7 @@ def search_transcriptions(df: pd.DataFrame, query: str, use_regex: bool=False, p
         return ("..." if start > 0 else "") + snippet + ("..." if end < len(text) else "")
 
     res_df["match_preview"] = res_df["text"].apply(make_preview)
-    return res_df[["file","speaker","text","block_index","match_preview"]]
+    return res_df[["file","speaker","text","block_index","match_preview"] + (["fuzzy_score"] if "fuzzy_score" in res_df else [])]
 
 
 # --- Colorear oradores ---
@@ -312,16 +325,25 @@ if 'trans_df' in st.session_state:
         use_regex = st.checkbox("Usar regex", value=False)
         phrase_mode = st.radio("Modo", ["Frase exacta", "Todas las palabras"], index=0) == "Frase exacta"
         speaker_filter = st.selectbox("Filtrar por orador", options=["(todos)"] + sorted(df['speaker'].unique().tolist()))
-    
+
+    # 🔍 Opciones fuzzy
+    fuzzy_mode = st.checkbox("Permitir errores menores (búsqueda difusa)", value=True)
+    threshold = st.slider("Sensibilidad fuzzy (mayor = más estricta)", 60, 90, 75)
+
     if st.button("Buscar"):
-        res = search_transcriptions(df, query, use_regex, phrase_mode)
+        res = search_transcriptions(df, query, use_regex, phrase_mode, fuzzy=fuzzy_mode, threshold=threshold)
         if speaker_filter != "(todos)":
             res = res[res['speaker'] == speaker_filter]
         if res.empty:
             st.warning("No se encontraron coincidencias.")
         else:
             st.success(f"Encontradas {len(res)} coincidencias")
-            st.dataframe(res[['file','speaker','match_preview']].style.apply(color_speaker_row, axis=1), use_container_width=True)
+            st.dataframe(
+                res[['file','speaker','match_preview'] + (['fuzzy_score'] if 'fuzzy_score' in res else [])]
+                .style.apply(color_speaker_row, axis=1),
+                use_container_width=True
+            )
             for i, row in res.iterrows():
                 with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
                     show_context(df, row['file'], row['block_index'], context=4)
+
