@@ -10,7 +10,7 @@ st.set_page_config(
     page_title="Audio splitter + Transcriptions search optimizado",
     layout="wide",
     initial_sidebar_state="collapsed",
-    page_icon="🚀"
+    page_icon="💵"
 )
 st.markdown("""
     <style>
