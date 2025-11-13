@@ -3,7 +3,21 @@ from moviepy.editor import AudioFileClip
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata
 from typing import List
 
-st.set_page_config(page_title="Audio splitter + Transcriptions search", layout="wide")
+# -------------------------------
+# CONFIGURACIÓN DE LA APP
+# -------------------------------
+st.set_page_config(
+    page_title="Audio splitter + Transcriptions search optimizado",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+    page_icon="🚀"
+)
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
 st.title("💰🔊 A ganar billete 💵 💶 💴")
 
 # --- Helper functions ---
