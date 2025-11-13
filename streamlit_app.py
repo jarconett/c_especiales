@@ -359,7 +359,7 @@ if 'trans_df' in st.session_state:
             options=["(todos)"] + sorted(df['speaker'].unique().tolist())
         )
         fuzzy_mode = st.radio("Modo fuzzy", options=["ninguno", "palabra", "contextual"], index=2)
-        threshold = st.slider("Umbral similitud (%)", 60, 95, 80)
+        threshold = st.slider("Umbral similitud (%)", 60, 95, 86)
 
     if st.button("Buscar"):
         res = search_transcriptions(df, query, use_regex, fuzzy_mode, threshold)
