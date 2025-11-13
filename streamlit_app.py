@@ -225,32 +225,22 @@ def search_transcriptions(
     if results.empty:
         return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview"])
 
-    # --- Crear vista previa ---
+    # --- Crear vista previa con resaltado ---
     def make_preview(text):
         tnorm = normalize_text(text)
         idx = tnorm.find(query_norm)
         if idx != -1:
             start = max(0, idx - 30)
             snippet = text[start:start + 160]
-            return ("..." if start > 0 else "") + snippet + ("..." if len(text) > start + 160 else "")
+            preview_text = ("..." if start > 0 else "") + snippet + ("..." if len(text) > start + 160 else "")
         else:
-            return text[:160] + "..."
+            preview_text = text[:160] + "..."
+        
+        # Aplicar resaltado a las palabras coincidentes
+        return highlight_matching_words(preview_text, query)
 
     results["match_preview"] = results["text"].apply(make_preview)
     return results[["file", "speaker", "text", "block_index", "match_preview"]]
-
-
-    # --- generar previsualización ---
-    def make_preview(text):
-        idx = text.lower().find(query_norm)
-        if idx != -1:
-            start = max(idx - 30, 0)
-            return "..." + text[start:start + 160] + "..."
-        else:
-            return text[:160] + "..."
-
-    results["match_preview"] = results["text"].apply(make_preview)
-    return results[["file","speaker","text","block_index","match_preview"]]
     
 # --- Colorear oradores ---
 def color_speaker_row(row):
@@ -259,6 +249,77 @@ def color_speaker_row(row):
     if s == "nacho": return ["background-color: salmon"]*len(row)
     if s == "lala": return ["background-color: #FF8C00"]*len(row)
     return [""]*len(row)
+
+
+# --- Obtener color de fondo según speaker ---
+def get_speaker_bg_color(speaker: str) -> str:
+    """Retorna el color de fondo según el speaker."""
+    s = speaker.strip().lower()
+    if s == "eva": return "mediumslateblue"
+    if s == "nacho": return "salmon"
+    if s == "lala": return "#FF8C00"
+    return "#f0f0f0"
+
+
+# --- Mostrar tabla de resultados con HTML ---
+def display_results_table(results_df: pd.DataFrame):
+    """Muestra los resultados en una tabla HTML que respeta colores y renderiza HTML del resaltado."""
+    if results_df.empty:
+        return
+    
+    html = """
+    <style>
+    .results-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+    }
+    .results-table th {
+        background-color: #4CAF50;
+        color: white;
+        padding: 8px;
+        text-align: left;
+        border: 1px solid #ddd;
+    }
+    .results-table td {
+        padding: 8px;
+        border: 1px solid #ddd;
+    }
+    </style>
+    <table class="results-table">
+    <thead>
+        <tr>
+            <th>Archivo</th>
+            <th>Orador</th>
+            <th>Vista Previa</th>
+        </tr>
+    </thead>
+    <tbody>
+    """
+    
+    for i, row in results_df.iterrows():
+        bg_color = get_speaker_bg_color(row['speaker'])
+        text_color = "white" if bg_color.lower() not in ["#f0f0f0", "salmon", "#ff8c00"] else "black"
+        
+        # Escapar el nombre del archivo para HTML
+        file_name = str(row['file']).replace('<', '&lt;').replace('>', '&gt;')
+        speaker_name = str(row['speaker']).replace('<', '&lt;').replace('>', '&gt;')
+        preview = row['match_preview']  # Ya contiene HTML del resaltado
+        
+        html += f"""
+        <tr style="background-color: {bg_color}; color: {text_color};">
+            <td>{file_name}</td>
+            <td><b>{speaker_name}</b></td>
+            <td>{preview}</td>
+        </tr>
+        """
+    
+    html += """
+    </tbody>
+    </table>
+    """
+    
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # --- Resaltar palabras coincidentes en el texto ---
@@ -418,10 +479,7 @@ if 'trans_df' in st.session_state:
             st.warning("No se encontraron coincidencias.")
         else:
             st.success(f"Encontradas {len(res)} coincidencias")
-            st.dataframe(
-                res[['file', 'speaker', 'match_preview']].style.apply(color_speaker_row, axis=1),
-                use_container_width=True
-            )
+            display_results_table(res[['file', 'speaker', 'match_preview']])
             for i, row in res.iterrows():
                 with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
                     show_context(df, row['file'], row['block_index'], query=query, context=4)
