@@ -289,7 +289,7 @@ def display_results_table(results_df: pd.DataFrame):
     margin: 10px 0;
 }}
 .results-table th {{
-    background-color: #4CAF50;
+    background-color: #4C98AF;
     color: white;
     padding: 8px;
     text-align: left;
