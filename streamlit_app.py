@@ -181,7 +181,14 @@ def search_transcriptions(
 
     # --- Búsqueda exacta / regex sobre texto normalizado ---
     if not use_regex:
+        # 1️⃣ Primero busca la frase completa
         mask = df["text_norm"].str.contains(re.escape(query_norm), na=False)
+
+         # 2️⃣ Si no hay resultados, busca todas las palabras en cualquier orden
+        if not mask.any():
+            terms = [t for t in query_norm.split() if t]
+            if terms:
+                mask = df["text_norm"].apply(lambda t: all(term in t for term in terms))
         results = df.loc[mask].copy()
     else:
         try:
@@ -190,6 +197,7 @@ def search_transcriptions(
         except re.error:
             st.error("Regex inválida")
             return pd.DataFrame()
+
 
     # --- Búsqueda fuzzy si no hay coincidencias exactas ---
     if results.empty and fuzzy_mode != "ninguno":
