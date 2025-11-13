@@ -85,8 +85,7 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
     resp = requests.get(api_url, headers=headers)
     
     if resp.status_code != 200:
-        st.error(f"Error fetching GitHub contents: {resp.status_code}")
-        return []
+        return []  # No error, solo retornar vacío para que pueda intentar otra carpeta
     
     items = resp.json()
     data = []
@@ -103,6 +102,26 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                     content = ""
                 data.append({"name": f['name'], "content": content})
     return data
+
+
+def load_transcriptions_from_github(repo_url: str) -> tuple[List[dict], str]:
+    """
+    Intenta cargar archivos desde 'transcripciones' primero, 
+    si no encuentra nada, intenta desde 'spoti'.
+    Retorna (files, folder_used)
+    """
+    # Intentar primero en "transcripciones"
+    files = read_txt_files_from_github(repo_url, path="transcripciones")
+    if files:
+        return files, "transcripciones"
+    
+    # Si no encuentra nada, intentar en "spoti"
+    files = read_txt_files_from_github(repo_url, path="spoti")
+    if files:
+        return files, "spoti"
+    
+    # Si no encuentra nada en ninguna carpeta
+    return [], ""
 
 
 def parse_transcription_text(name: str, text: str) -> pd.DataFrame:
@@ -259,23 +278,25 @@ with repo_col:
     # Carga automática al inicio si no hay datos
     if gh_url and 'trans_files' not in st.session_state:
         with st.spinner("Cargando archivos .txt desde GitHub..."):
-            files = read_txt_files_from_github(gh_url, path="transcripciones")
+            files, folder_used = load_transcriptions_from_github(gh_url)
             if files:
                 st.session_state['trans_files'] = files
                 st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-                st.success(f"Cargados {len(files)} archivos y DataFrame con {len(st.session_state['trans_df'])} bloques")
+                st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(st.session_state['trans_df'])} bloques")
+            else:
+                st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
     
     # Botón para recargar manualmente
     if st.button("🔄 Recargar archivos .txt desde GitHub", key="reload_transcriptions"):
         if gh_url:
             with st.spinner("Recargando archivos .txt desde GitHub..."):
-                files = read_txt_files_from_github(gh_url, path="transcripciones")
+                files, folder_used = load_transcriptions_from_github(gh_url)
                 if files:
                     st.session_state['trans_files'] = files
                     st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-                    st.success(f"Recargados {len(files)} archivos y DataFrame con {len(st.session_state['trans_df'])} bloques")
+                    st.success(f"Recargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(st.session_state['trans_df'])} bloques")
                 else:
-                    st.warning("No se encontraron archivos .txt en el repositorio")
+                    st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
         else:
             st.error("Por favor, ingresa una URL de repositorio GitHub válida")
 
