@@ -261,8 +261,44 @@ def color_speaker_row(row):
     return [""]*len(row)
 
 
+# --- Resaltar palabras coincidentes en el texto ---
+def highlight_matching_words(text: str, query: str) -> str:
+    """Resalta las palabras que coinciden con la búsqueda en rojo y negrita."""
+    if not query or not text:
+        return text
+    
+    # Normalizar query y obtener términos
+    query_norm = normalize_text(query)
+    query_terms = set([t for t in query_norm.split() if t])
+    
+    if not query_terms:
+        return text
+    
+    # Dividir el texto en tokens (palabras y no-palabras) preservando todo
+    # Usar regex para dividir manteniendo los delimitadores
+    tokens = re.split(r'(\w+)', text)
+    
+    result_parts = []
+    for token in tokens:
+        if not token:
+            continue
+        # Si es una palabra (solo letras/números)
+        if re.match(r'^\w+$', token):
+            # Normalizar y verificar si coincide
+            token_norm = normalize_text(token)
+            if token_norm in query_terms:
+                result_parts.append(f'<span style="color: red; font-weight: bold;">{token}</span>')
+            else:
+                result_parts.append(token)
+        else:
+            # Es puntuación o espacios, mantenerlo tal cual
+            result_parts.append(token)
+    
+    return ''.join(result_parts)
+
+
 # --- Mostrar contexto ±4 líneas con bloque central resaltado ---
-def show_context(df, file, block_idx, context=4):
+def show_context(df, file, block_idx, query="", context=4):
     sub_df = df[df['file'] == file].reset_index(drop=True)
     idx = sub_df.index[sub_df['block_index'] == block_idx][0]
     start = max(idx - context, 0)
@@ -272,6 +308,10 @@ def show_context(df, file, block_idx, context=4):
         row = sub_df.loc[i]
         speaker = row['speaker']
         text = row['text']
+        
+        # Resaltar palabras coincidentes si hay query
+        if query:
+            text = highlight_matching_words(text, query)
 
         if speaker.lower() == "eva":
             bg_color = "mediumslateblue"
@@ -384,5 +424,4 @@ if 'trans_df' in st.session_state:
             )
             for i, row in res.iterrows():
                 with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
-                    show_context(df, row['file'], row['block_index'], context=4)
-
+                    show_context(df, row['file'], row['block_index'], query=query, context=4)
