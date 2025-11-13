@@ -267,59 +267,54 @@ def display_results_table(results_df: pd.DataFrame):
     if results_df.empty:
         return
     
-    html = """
-    <style>
-    .results-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 10px 0;
-    }
-    .results-table th {
-        background-color: #4CAF50;
-        color: white;
-        padding: 8px;
-        text-align: left;
-        border: 1px solid #ddd;
-    }
-    .results-table td {
-        padding: 8px;
-        border: 1px solid #ddd;
-    }
-    </style>
-    <table class="results-table">
-    <thead>
-        <tr>
-            <th>Archivo</th>
-            <th>Orador</th>
-            <th>Vista Previa</th>
-        </tr>
-    </thead>
-    <tbody>
-    """
-    
+    # Construir todas las filas primero
+    rows_html = []
     for i, row in results_df.iterrows():
         bg_color = get_speaker_bg_color(row['speaker'])
         text_color = "white" if bg_color.lower() not in ["#f0f0f0", "salmon", "#ff8c00"] else "black"
         
-        # Escapar el nombre del archivo para HTML
-        file_name = str(row['file']).replace('<', '&lt;').replace('>', '&gt;')
-        speaker_name = str(row['speaker']).replace('<', '&lt;').replace('>', '&gt;')
-        preview = row['match_preview']  # Ya contiene HTML del resaltado
+        # Escapar el nombre del archivo y speaker para HTML (solo caracteres especiales, no el HTML del preview)
+        file_name = str(row['file']).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        speaker_name = str(row['speaker']).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        preview = row['match_preview']  # Ya contiene HTML del resaltado, no escapamos esto
         
-        html += f"""
-        <tr style="background-color: {bg_color}; color: {text_color};">
-            <td>{file_name}</td>
-            <td><b>{speaker_name}</b></td>
-            <td>{preview}</td>
-        </tr>
-        """
+        rows_html.append(f'<tr style="background-color: {bg_color}; color: {text_color};"><td>{file_name}</td><td><b>{speaker_name}</b></td><td>{preview}</td></tr>')
     
-    html += """
-    </tbody>
-    </table>
-    """
+    # Construir el HTML completo de una vez
+    html_content = f"""
+<style>
+.results-table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+}}
+.results-table th {{
+    background-color: #4CAF50;
+    color: white;
+    padding: 8px;
+    text-align: left;
+    border: 1px solid #ddd;
+}}
+.results-table td {{
+    padding: 8px;
+    border: 1px solid #ddd;
+}}
+</style>
+<table class="results-table">
+<thead>
+<tr>
+<th>Archivo</th>
+<th>Orador</th>
+<th>Vista Previa</th>
+</tr>
+</thead>
+<tbody>
+{''.join(rows_html)}
+</tbody>
+</table>
+"""
     
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(html_content, unsafe_allow_html=True)
 
 
 # --- Resaltar palabras coincidentes en el texto ---
