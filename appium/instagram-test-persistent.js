@@ -983,7 +983,7 @@ async function main() {
         // Loop principal
         while (true) {
             try {
-                const userResponse = readlineSync.question('📝 Ingresa tu respuesta (o "salir" para terminar): ');
+                const userResponse = readlineSync.question('Introduce tu respuesta (o "salir" para terminar): ');
                 
                 if (userResponse.toLowerCase() === 'salir') {
                     console.log('👋 Cerrando sesiones...');
