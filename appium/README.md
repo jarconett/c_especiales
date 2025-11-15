@@ -1,14 +1,3 @@
-# Sistema de Automatización de Instagram
-
-Sistema automatizado para responder a preguntas en stories de Instagram en múltiples dispositivos Android de forma simultánea.
-
-## 📋 Descripción
-
-Este sistema permite:
-- **Responder automáticamente** a preguntas en stories de Instagram
-- **Ejecutar en paralelo** en múltiples dispositivos Android
-- **Marcar stories como vistos** antes de responder
-- **Mantener sesiones persistentes** para múltiples respuestas
 
 ## 🔧 Requisitos Previos
 
@@ -262,5 +251,6 @@ Desarrollado para automatización de respuestas en Instagram.
 ---
 
 **Última actualización:** 2025-01-15
+
 
 
