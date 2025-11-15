@@ -154,10 +154,10 @@ Una vez completados todos los pasos, ya puedes usar el sistema. Ve a la sección
 
 ## 🚀 Uso
 
-### Opción 1: Perfil "javirrcoreano"
+### Opción 1: Perfil "pruebas"
 Doble clic en: **`iniciar-test.bat`**
 
-### Opción 2: Perfil "cuerposespeciales"
+### Opción 2: Perfil "c_especiales"
 Doble clic en: **`iniciar-c_especiales.bat`**
 
 ### Proceso Automático:
@@ -183,12 +183,12 @@ Una vez iniciado, el sistema te pedirá:
 
 ```
 CESP_APPIUM/
-├── iniciar-test.bat                   # Inicia automatización para "javirrcoreano"
-├── iniciar-c_especiales.bat           # Inicia automatización para "cuerposespeciales"
-├── start-all.ps1                      # Script PowerShell para "javirrcoreano"
-├── start-all-c_especiales.ps1          # Script PowerShell para "cuerposespeciales"
-├── instagram-test-persistent.js       # Script principal para "javirrcoreano"
-├── instagram-c_especiales_persistent.js # Script principal para "cuerposespeciales"
+├── iniciar-test.bat                   # Inicia automatización para "pruebas"
+├── iniciar-c_especiales.bat           # Inicia automatización para "c_especiales"
+├── start-all.ps1                      # Script PowerShell para "pruebas"
+├── start-all-c_especiales.ps1          # Script PowerShell para "c_especiales"
+├── instagram-test-persistent.js       # Script principal para "pruebas"
+├── instagram-c_especiales_persistent.js # Script principal para "c_especiales"
 ├── package.json                       # Dependencias del proyecto
 ├── package-lock.json                  # Versiones exactas de dependencias
 └── node_modules/                      # Dependencias instaladas (no subir a Git)
@@ -205,7 +205,7 @@ Reemplaza `'NOMBRE_DEL_PERFIL'` con el perfil deseado.
 
 ### Cambiar Puerto Base de Appium:
 Por defecto usa puertos desde `4723`. Para cambiar, edita:
-- En `start-all.ps1` o `start-all-cuerposespeciales.ps1`:
+- En `start-all.ps1` o `start-all-c_especiales.ps1`:
   ```powershell
   $startPort = 4723  # Cambiar este valor
   ```
@@ -262,4 +262,5 @@ Desarrollado para automatización de respuestas en Instagram.
 ---
 
 **Última actualización:** 2025-01-15
+
 
