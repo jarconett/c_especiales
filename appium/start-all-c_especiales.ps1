@@ -55,10 +55,11 @@ Write-Host ""
 Write-Host "Ejecutando script principal..." -ForegroundColor Green
 Write-Host ""
 
-if (Test-Path "instagram-cuerposespeciales-persistent.js") {
-    node instagram-cuerposespeciales-persistent.js
+if (Test-Path "instagram-c_especiales-persistent.js") {
+    node instagram-c_especiales-persistent.js
 } else {
-    Write-Host "ERROR: No se encontro el archivo instagram-cuerposespeciales-persistent.js" -ForegroundColor Red
+    Write-Host "ERROR: No se encontro el archivo instagram-c_especiales-persistent.js" -ForegroundColor Red
     exit 1
 }
+
 
