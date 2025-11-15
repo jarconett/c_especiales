@@ -55,9 +55,10 @@ Write-Host ""
 Write-Host "Ejecutando script principal..." -ForegroundColor Green
 Write-Host ""
 
-if (Test-Path "instagram-javirrcoreano-persistent.js") {
-    node instagram-javirrcoreano-persistent.js
+if (Test-Path "instagram-test-persistent.js") {
+    node instagram-test-persistent.js
 } else {
-    Write-Host "ERROR: No se encontro el archivo instagram-javirrcoreano-persistent.js" -ForegroundColor Red
+    Write-Host "ERROR: No se encontro el archivo instagram-test-persistent.js" -ForegroundColor Red
     exit 1
 }
+
