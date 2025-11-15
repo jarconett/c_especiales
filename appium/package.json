@@ -1,0 +1,18 @@
+{
+  "name": "cesp_appium",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@wdio/cli": "^9.20.0",
+    "readline-sync": "^1.4.10",
+    "webdriverio": "^9.20.0"
+  }
+}
