@@ -381,6 +381,153 @@ async function isSessionActive(driver) {
     }
 }
 
+// Buscar story con pregunta refrescando el perfil
+async function findStoryWithQuestion(udid, driver) {
+    try {
+        console.log(`  🔄 Refrescando perfil en ${udid} para buscar story con pregunta...`);
+        
+        // Asegurarse de estar en el perfil
+        const profileCheck = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 1000);
+        if (!profileCheck) {
+            // Navegar al perfil si no estamos ahí
+            const searchButton = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/search_tab"]', 1000);
+            if (searchButton) {
+                await searchButton.click();
+                await driver.pause(200);
+            }
+            
+            const searchInput = await waitForElementMaxSpeed(driver, '//android.widget.EditText', 500);
+            if (searchInput) {
+                await searchInput.click();
+                await searchInput.setValue('javirrcoreano');
+                await driver.pause(500);
+            }
+            
+            const profileResults = await driver.$$('//android.widget.TextView[@text="javirrcoreano"]');
+            if (profileResults.length >= 2) {
+                await profileResults[1].click();
+            } else if (profileResults.length === 1) {
+                await profileResults[0].click();
+            }
+            await driver.pause(500);
+        }
+        
+        // Obtener dimensiones de pantalla para el swipe
+        const windowSize = await driver.getWindowSize();
+        const centerX = Math.floor(windowSize.width / 2);
+        const startY = Math.floor(windowSize.height * 0.3); // 30% desde arriba
+        const endY = Math.floor(windowSize.height * 0.7); // 70% desde arriba
+        
+        const maxRefreshAttempts = 60; // Máximo 60 segundos (60 swipes de 1 segundo)
+        let refreshCount = 0;
+        
+        while (refreshCount < maxRefreshAttempts) {
+            // Hacer swipe down para refrescar
+            await driver.performActions([{
+                type: 'pointer',
+                id: 'finger1',
+                parameters: { pointerType: 'touch' },
+                actions: [
+                    { type: 'pointerMove', x: centerX, y: startY, duration: 0 },
+                    { type: 'pointerDown', button: 0 },
+                    { type: 'pause', duration: 100 },
+                    { type: 'pointerMove', x: centerX, y: endY, duration: 300 },
+                    { type: 'pointerUp', button: 0 }
+                ]
+            }]);
+            
+            await driver.pause(1000); // Esperar 1 segundo entre swipes
+            
+            refreshCount++;
+            
+            // Verificar si hay un story disponible
+            const storyElement = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 200);
+            if (!storyElement) {
+                continue; // No hay story, continuar refrescando
+            }
+            
+            // Abrir el story para verificar si tiene pregunta
+            try {
+                await storyElement.click();
+                await driver.pause(800); // Esperar a que se abra el viewer
+                
+                // Buscar elementos con signo de interrogación (pregunta)
+                const questionElements = await driver.$$('//*[contains(@text, "?")] | //*[contains(@content-desc, "?")]');
+                
+                if (questionElements.length > 0) {
+                    // Hay una pregunta, hacer clic en ella
+                    await questionElements[0].click();
+                    await driver.pause(200);
+                    console.log(`  ✅ Story con pregunta encontrado en ${udid} después de ${refreshCount} refrescos`);
+                    return true; // Encontrado, salir
+                } else {
+                    // No hay pregunta, cerrar el viewer y continuar refrescando
+                    await driver.pressKeyCode(4); // KEYCODE_BACK
+                    await driver.pause(300);
+                }
+            } catch (e) {
+                // Si hay error al abrir el story, continuar refrescando
+                try {
+                    await driver.pressKeyCode(4); // Intentar cerrar por si acaso
+                    await driver.pause(300);
+                } catch (e2) {
+                    // Ignorar
+                }
+            }
+            
+            // Verificar que seguimos en el perfil
+            const stillInProfile = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 200);
+            if (!stillInProfile) {
+                // Si salimos del perfil, volver
+                const searchButton = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/search_tab"]', 500);
+                if (searchButton) {
+                    await searchButton.click();
+                    await driver.pause(200);
+                }
+                
+                const searchInput = await waitForElementMaxSpeed(driver, '//android.widget.EditText', 500);
+                if (searchInput) {
+                    await searchInput.click();
+                    await searchInput.setValue('javirrcoreano');
+                    await driver.pause(500);
+                }
+                
+                const profileResults = await driver.$$('//android.widget.TextView[@text="javirrcoreano"]');
+                if (profileResults.length >= 2) {
+                    await profileResults[1].click();
+                } else if (profileResults.length === 1) {
+                    await profileResults[0].click();
+                }
+                await driver.pause(500);
+            }
+        }
+        
+        // Si llegamos aquí, no se encontró story con pregunta después de todos los intentos
+        console.log(`  ⚠️  No se encontró story con pregunta en ${udid} después de ${refreshCount} refrescos`);
+        // Intentar abrir el story de todas formas
+        const storyElement = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 500);
+        if (storyElement) {
+            await storyElement.click();
+            await driver.pause(800);
+        }
+        return false;
+        
+    } catch (error) {
+        console.error(`  ❌ Error buscando story con pregunta en ${udid}: ${error.message}`);
+        // Intentar abrir el story de todas formas
+        try {
+            const storyElement = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 500);
+            if (storyElement) {
+                await storyElement.click();
+                await driver.pause(800);
+            }
+        } catch (e) {
+            // Ignorar
+        }
+        return false;
+    }
+}
+
 // Ejecutar automatización en un dispositivo específico
 async function executeStoryAutomationOnDevice(udid, driver, userResponse) {
     const startTime = Date.now();
@@ -390,24 +537,12 @@ async function executeStoryAutomationOnDevice(udid, driver, userResponse) {
         if (!isActive) {
             throw new Error('Sesión cerrada, necesita reconexión');
         }
-        // ABRIR STORY
-        const storyElement = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 100);
-        if (storyElement) {
-            await storyElement.click();
-        }
-
-        await driver.pause(100); // Reducido de 200 a 100
         
-        // Hacer clic en la pregunta (búsqueda optimizada)
-        try {
-            const questionElements = await driver.$$('//*[contains(@text, "?")] | //*[contains(@content-desc, "?")]');
-            if (questionElements.length > 0) {
-                await questionElements[0].click();
-                await driver.pause(50); // Reducido de 100 a 50
-            }
-        } catch (e) {
-            // Continuar
-        }
+        // PRIMERO: Refrescar perfil y buscar story con pregunta
+        await findStoryWithQuestion(udid, driver);
+        
+        // El story ya debería estar abierto con la pregunta, continuar con el flujo normal
+        await driver.pause(100);
         
         // BUSCAR CAMPO DE TEXTO (optimizado)
         let inputField = null;
@@ -983,7 +1118,7 @@ async function main() {
         // Loop principal
         while (true) {
             try {
-                const userResponse = readlineSync.question('Introduce tu respuesta (o "salir" para terminar): ');
+                const userResponse = readlineSync.question('📝 Ingresa tu respuesta (o "salir" para terminar): ');
                 
                 if (userResponse.toLowerCase() === 'salir') {
                     console.log('👋 Cerrando sesiones...');
