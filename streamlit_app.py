@@ -222,15 +222,25 @@ def _get_github_headers():
         # También intentar con get() por si acaso
         elif hasattr(st.secrets, 'get'):
             token = st.secrets.get("GITHUB_TOKEN", "")
-    except Exception:
-        pass
+    except Exception as e:
+        # Si hay un error, intentar de otra forma
+        try:
+            token = st.secrets.get("GITHUB_TOKEN", "")
+        except:
+            pass
     
     # Si no se encontró en secrets, intentar variable de entorno
     if not token:
         token = os.getenv("GITHUB_TOKEN", "")
     
-    # Limpiar el token de espacios en blanco
+    # Limpiar el token de espacios en blanco y comillas
     if token:
+        token = str(token).strip()
+        # Remover comillas si las tiene (por si se copió con comillas)
+        if token.startswith('"') and token.endswith('"'):
+            token = token[1:-1]
+        if token.startswith("'") and token.endswith("'"):
+            token = token[1:-1]
         token = token.strip()
     
     headers = {
@@ -239,7 +249,8 @@ def _get_github_headers():
     
     if token:
         # GitHub acepta tanto "token" como "Bearer" para la autorización
-        # Intentar con "token" primero (formato tradicional de GitHub API v3)
+        # Usar "token" (formato tradicional de GitHub API v3)
+        # También funciona "Bearer" pero "token" es más compatible
         headers["Authorization"] = f"token {token}"
     
     return headers, token
@@ -664,12 +675,38 @@ st.markdown("---")
 st.header("2) Leer transcripciones")
 
 # Mostrar estado del token
-_, token_value = _get_github_headers()
+headers_token, token_value = _get_github_headers()
 token_status = "✅ Configurado" if token_value else "❌ No configurado"
 with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False):
     if token_value:
         st.success("Token GitHub detectado correctamente")
-        st.info("💡 Si tienes problemas de acceso, verifica que el token tenga permisos de lectura para repositorios.")
+        # Mostrar información del token (solo primeros y últimos caracteres por seguridad)
+        token_preview = f"{token_value[:7]}...{token_value[-4:]}" if len(token_value) > 11 else "***"
+        st.code(f"Token: {token_preview} (longitud: {len(token_value)} caracteres)")
+        
+        # Botón para probar el token
+        if st.button("🧪 Probar Token", key="test_token"):
+            with st.spinner("Probando token con la API de GitHub..."):
+                try:
+                    test_resp = requests.get("https://api.github.com/user", headers=headers_token)
+                    if test_resp.status_code == 200:
+                        user_info = test_resp.json()
+                        st.success(f"✅ Token válido! Conectado como: {user_info.get('login', 'Usuario')}")
+                        st.json({
+                            "Usuario": user_info.get('login', 'N/A'),
+                            "Nombre": user_info.get('name', 'N/A'),
+                            "Email": user_info.get('email', 'N/A'),
+                            "Tipo": user_info.get('type', 'N/A')
+                        })
+                    elif test_resp.status_code == 401:
+                        st.error("❌ Token inválido o expirado. Verifica que el token sea correcto.")
+                    else:
+                        st.warning(f"⚠️ Respuesta inesperada: {test_resp.status_code}")
+                        st.text(test_resp.text[:200])
+                except Exception as e:
+                    st.error(f"❌ Error al probar el token: {str(e)}")
+        
+        st.info("💡 Si tienes problemas de acceso, verifica que el token tenga permisos de **repo** para repositorios privados.")
     else:
         st.warning("No se encontró GITHUB_TOKEN en los secrets ni en variables de entorno.")
         st.markdown("""
@@ -679,6 +716,10 @@ with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False
         3. Agrega:
            ```toml
            [default]
+           GITHUB_TOKEN = "tu_token_aqui"
+           ```
+           O sin [default]:
+           ```toml
            GITHUB_TOKEN = "tu_token_aqui"
            ```
         4. Guarda los cambios
