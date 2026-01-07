@@ -262,6 +262,8 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
     Retorna (lista_de_archivos, mensaje_de_error_o_exito)
     """
     import re as _re
+    from datetime import datetime, timedelta
+    
     if repo_url.count("/") == 1 and "/" in repo_url:
         owner_repo = repo_url
     else:
@@ -270,9 +272,51 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
             return [], "URL de repo no válida."
         owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
     
+    # Verificar caché (válido por 5 minutos)
+    cache_key = f"github_cache_{owner_repo}_{path}"
+    if cache_key in st.session_state:
+        cached_data, cached_time = st.session_state[cache_key]
+        if datetime.now() - cached_time < timedelta(minutes=5):
+            return cached_data, ""
+    
     headers, token = _get_github_headers()
     api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
     resp = requests.get(api_url, headers=headers)
+    
+    # Verificar si es un error de rate limit
+    if resp.status_code == 403 or resp.status_code == 429:
+        try:
+            error_json = resp.json()
+            error_message = error_json.get("message", "")
+            if "rate limit" in error_message.lower() or "API rate limit" in error_message:
+                # Es un error de rate limit
+                reset_time = resp.headers.get("X-RateLimit-Reset", "")
+                remaining = resp.headers.get("X-RateLimit-Remaining", "0")
+                limit = resp.headers.get("X-RateLimit-Limit", "60")
+                
+                # Verificar si el token se está usando correctamente
+                token_being_used = "Authorization" in headers and headers["Authorization"].startswith("token ")
+                token_status_msg = ""
+                if token and not token_being_used:
+                    token_status_msg = "\n\n⚠️ PROBLEMA DETECTADO: Tienes un token configurado pero parece que no se está usando correctamente en las peticiones.\nVerifica que el token esté correctamente configurado en los secrets."
+                elif not token:
+                    token_status_msg = "\n\n💡 CONSEJO: Configura un GITHUB_TOKEN en los secrets para tener 5,000 peticiones/hora en lugar de 60."
+                elif limit == "60":
+                    token_status_msg = "\n\n⚠️ ADVERTENCIA: El límite es 60, lo que sugiere que el token no se está usando. Verifica que el token esté correctamente configurado."
+                
+                reset_info = ""
+                if reset_time:
+                    try:
+                        from datetime import datetime
+                        reset_timestamp = int(reset_time)
+                        reset_datetime = datetime.fromtimestamp(reset_timestamp)
+                        reset_info = f"\n\nEl límite se restablecerá aproximadamente a las: {reset_datetime.strftime('%Y-%m-%d %H:%M:%S')}"
+                    except:
+                        pass
+                
+                return [], f"⚠️ Límite de tasa de la API de GitHub alcanzado.\n\nLímite: {limit} peticiones/hora\nQuedan: {remaining} peticiones disponibles\nUsado: {int(limit) - int(remaining)}/{limit}{reset_info}{token_status_msg}\n\n**Soluciones:**\n- Espera unos minutos antes de volver a intentar\n- Verifica que el token esté correctamente configurado en los secrets\n- Usa el botón '🧪 Probar Token' para verificar que funciona\n- Evita recargar la página repetidamente"
+        except:
+            pass
     
     if resp.status_code == 404:
         return [], f"La carpeta '{path}' no existe en el repositorio."
@@ -320,7 +364,11 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                 try:
                     content_bytes = base64.b64decode(items.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
-                    return [{"name": items['name'], "content": content}], ""
+                    result = [{"name": items['name'], "content": content}]
+                    # Guardar en caché
+                    from datetime import datetime
+                    st.session_state[cache_key] = (result, datetime.now())
+                    return result, ""
                 except Exception as e:
                     return [], f"Error al decodificar el archivo: {str(e)}"
         return [], f"La ruta '{path}' no es una carpeta o no contiene archivos .txt."
@@ -332,6 +380,22 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
             txt_files_found += 1
             file_api = f"https://api.github.com/repos/{owner_repo}/contents/{path}/{f['name']}"
             file_resp = requests.get(file_api, headers=headers)
+            
+            # Verificar rate limit en peticiones de archivos individuales
+            if file_resp.status_code == 403 or file_resp.status_code == 429:
+                try:
+                    error_json = file_resp.json()
+                    error_message = error_json.get("message", "")
+                    if "rate limit" in error_message.lower() or "API rate limit" in error_message:
+                        limit = file_resp.headers.get("X-RateLimit-Limit", "60")
+                        remaining = file_resp.headers.get("X-RateLimit-Remaining", "0")
+                        token_issue = ""
+                        if limit == "60" and token:
+                            token_issue = "\n\n⚠️ El límite es 60, lo que indica que el token NO se está usando correctamente. Verifica la configuración del token."
+                        return [], f"⚠️ Límite de tasa alcanzado al obtener archivos.\n\nLímite: {limit}/hora\nQuedan: {remaining} peticiones{token_issue}"
+                except:
+                    pass
+            
             if file_resp.status_code == 200:
                 file_info = file_resp.json()
                 try:
@@ -340,9 +404,20 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                     data.append({"name": f['name'], "content": content})
                 except Exception as e:
                     return [], f"Error al decodificar el archivo {f['name']}: {str(e)}"
+            elif file_resp.status_code != 200:
+                # Si hay un error al obtener un archivo, continuar con los demás pero registrar el error
+                error_msg = f"Error al obtener {f['name']}: código {file_resp.status_code}"
+                if txt_files_found == 1:  # Si es el primer archivo y falla, retornar error
+                    return [], error_msg
+                # Si hay más archivos, continuar pero mostrar advertencia
+                st.warning(error_msg)
     
     if txt_files_found == 0:
         return [], f"No se encontraron archivos .txt en la carpeta '{path}'."
+    
+    # Guardar en caché los resultados exitosos
+    from datetime import datetime
+    st.session_state[cache_key] = (data, datetime.now())
     
     return data, ""
 
@@ -698,6 +773,33 @@ with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False
                             "Email": user_info.get('email', 'N/A'),
                             "Tipo": user_info.get('type', 'N/A')
                         })
+                        
+                        # Mostrar información de rate limits
+                        limit = test_resp.headers.get("X-RateLimit-Limit", "N/A")
+                        remaining = test_resp.headers.get("X-RateLimit-Remaining", "N/A")
+                        reset_time = test_resp.headers.get("X-RateLimit-Reset", "")
+                        
+                        st.markdown("**📊 Estado de Rate Limits:**")
+                        if limit != "N/A":
+                            if limit == "60":
+                                st.warning(f"⚠️ Límite: {limit}/hora - El token NO se está usando correctamente")
+                                st.info("💡 Verifica que el token esté correctamente configurado en los secrets")
+                            elif limit == "5000":
+                                st.success(f"✅ Límite: {limit}/hora - Token funcionando correctamente")
+                            else:
+                                st.info(f"ℹ️ Límite: {limit}/hora")
+                            
+                            if remaining != "N/A":
+                                st.info(f"Peticiones restantes: {remaining}/{limit}")
+                            
+                            if reset_time:
+                                try:
+                                    from datetime import datetime
+                                    reset_timestamp = int(reset_time)
+                                    reset_datetime = datetime.fromtimestamp(reset_timestamp)
+                                    st.caption(f"Se restablece: {reset_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+                                except:
+                                    pass
                     elif test_resp.status_code == 401:
                         st.error("❌ Token inválido o expirado. Verifica que el token sea correcto.")
                     else:
@@ -707,6 +809,21 @@ with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False
                     st.error(f"❌ Error al probar el token: {str(e)}")
         
         st.info("💡 Si tienes problemas de acceso, verifica que el token tenga permisos de **repo** para repositorios privados.")
+        
+        # Información sobre rate limits
+        st.markdown("---")
+        st.markdown("**📊 Límites de la API de GitHub:**")
+        st.markdown("- Sin token: 60 peticiones/hora")
+        st.markdown("- Con token: 5,000 peticiones/hora")
+        st.markdown("- La aplicación usa caché (5 minutos) para reducir peticiones")
+        
+        # Botón para limpiar caché
+        if st.button("🗑️ Limpiar Caché", key="clear_cache"):
+            # Limpiar todos los cachés de GitHub
+            keys_to_remove = [k for k in st.session_state.keys() if k.startswith("github_cache_")]
+            for key in keys_to_remove:
+                del st.session_state[key]
+            st.success("✅ Caché limpiado. Las próximas peticiones serán frescas.")
     else:
         st.warning("No se encontró GITHUB_TOKEN en los secrets ni en variables de entorno.")
         st.markdown("""
