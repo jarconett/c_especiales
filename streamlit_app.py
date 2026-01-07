@@ -21,6 +21,20 @@ def hash_password(password: str) -> str:
     """Genera un hash SHA256 de la contraseña."""
     return hashlib.sha256(password.encode()).hexdigest()
 
+def safe_rerun():
+    """Ejecuta un rerun de forma segura."""
+    try:
+        # Intentar usar st.rerun() primero
+        st.rerun()
+    except Exception:
+        # Si falla, intentar usar experimental_rerun (versiones anteriores)
+        try:
+            st.experimental_rerun()
+        except Exception:
+            # Si ambos fallan, simplemente no hacer nada
+            # Streamlit debería hacer rerun automáticamente
+            pass
+
 def check_password(password: str) -> bool:
     """Verifica si la contraseña es correcta."""
     correct_password = get_password_hash()
@@ -89,8 +103,8 @@ def show_login_page():
                 # Establecer el estado de autenticación
                 st.session_state['authenticated'] = True
                 st.session_state['password_entered'] = password
-                # Rerun para mostrar el contenido autenticado
-                st.rerun()
+                # Forzar rerun de forma segura para mostrar el contenido autenticado
+                safe_rerun()
             else:
                 st.error("❌ Contraseña incorrecta. Intenta nuevamente.")
         
@@ -123,7 +137,11 @@ col_logout, col_title = st.columns([1, 10])
 with col_logout:
     if st.button("🚪 Salir", key="logout_button"):
         st.session_state['authenticated'] = False
-        st.rerun()
+        # Limpiar otros estados relacionados si es necesario
+        if 'password_entered' in st.session_state:
+            del st.session_state['password_entered']
+        # Forzar rerun de forma segura para mostrar la página de login
+        safe_rerun()
 
 with col_title:
     st.title("💰🔊 A ganar billete 💵 💶 💴")
