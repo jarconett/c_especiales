@@ -21,23 +21,6 @@ def hash_password(password: str) -> str:
     """Genera un hash SHA256 de la contraseña."""
     return hashlib.sha256(password.encode()).hexdigest()
 
-def safe_rerun():
-    """Ejecuta un rerun de forma segura."""
-    # Usar st.rerun() directamente - debería funcionar ahora que st.set_page_config() 
-    # solo se llama una vez al inicio
-    try:
-        st.rerun()
-    except AttributeError:
-        # Si st.rerun() no está disponible, intentar experimental_rerun
-        try:
-            st.experimental_rerun()
-        except AttributeError:
-            # Si tampoco está disponible, usar un enfoque alternativo
-            # Forzar rerun mediante cambio de estado
-            if 'force_rerun' not in st.session_state:
-                st.session_state['force_rerun'] = 0
-            st.session_state['force_rerun'] += 1
-
 def check_password(password: str) -> bool:
     """Verifica si la contraseña es correcta."""
     correct_password = get_password_hash()
@@ -55,19 +38,15 @@ def check_password(password: str) -> bool:
     # Si no es un hash, comparar directamente (para compatibilidad)
     return password == correct_password
 
-# -------------------------------
-# CONFIGURACIÓN INICIAL DE LA APP
-# -------------------------------
-# Configurar la página una sola vez al inicio
-st.set_page_config(
-    page_title="Audio splitter + Transcriptions search optimizado",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-    page_icon="💵"
-)
-
 def show_login_page():
     """Muestra la página de login."""
+    st.set_page_config(
+        page_title="Login - Audio splitter",
+        layout="centered",
+        initial_sidebar_state="collapsed",
+        page_icon="🔐"
+    )
+    
     # Estilos para la página de login
     st.markdown("""
         <style>
@@ -103,11 +82,8 @@ def show_login_page():
         
         if login_button:
             if check_password(password):
-                # Establecer el estado de autenticación
                 st.session_state['authenticated'] = True
                 st.session_state['password_entered'] = password
-                # Rerun para mostrar el contenido autenticado
-                # Ahora debería funcionar porque st.set_page_config() solo se llama una vez al inicio
                 st.rerun()
             else:
                 st.error("❌ Contraseña incorrecta. Intenta nuevamente.")
@@ -127,8 +103,14 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # -------------------------------
-# ESTILOS DE LA APP (solo se muestra si está autenticado)
+# CONFIGURACIÓN DE LA APP (solo se muestra si está autenticado)
 # -------------------------------
+st.set_page_config(
+    page_title="Audio splitter + Transcriptions search optimizado",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+    page_icon="💵"
+)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -141,10 +123,6 @@ col_logout, col_title = st.columns([1, 10])
 with col_logout:
     if st.button("🚪 Salir", key="logout_button"):
         st.session_state['authenticated'] = False
-        # Limpiar otros estados relacionados si es necesario
-        if 'password_entered' in st.session_state:
-            del st.session_state['password_entered']
-        # Rerun para mostrar la página de login
         st.rerun()
 
 with col_title:
