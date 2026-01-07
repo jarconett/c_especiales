@@ -21,6 +21,23 @@ def hash_password(password: str) -> str:
     """Genera un hash SHA256 de la contraseña."""
     return hashlib.sha256(password.encode()).hexdigest()
 
+def safe_rerun():
+    """Ejecuta un rerun de forma segura."""
+    # Usar st.rerun() directamente - debería funcionar ahora que st.set_page_config() 
+    # solo se llama una vez al inicio
+    try:
+        st.rerun()
+    except AttributeError:
+        # Si st.rerun() no está disponible, intentar experimental_rerun
+        try:
+            st.experimental_rerun()
+        except AttributeError:
+            # Si tampoco está disponible, usar un enfoque alternativo
+            # Forzar rerun mediante cambio de estado
+            if 'force_rerun' not in st.session_state:
+                st.session_state['force_rerun'] = 0
+            st.session_state['force_rerun'] += 1
+
 def check_password(password: str) -> bool:
     """Verifica si la contraseña es correcta."""
     correct_password = get_password_hash()
@@ -38,15 +55,19 @@ def check_password(password: str) -> bool:
     # Si no es un hash, comparar directamente (para compatibilidad)
     return password == correct_password
 
+# -------------------------------
+# CONFIGURACIÓN INICIAL DE LA APP
+# -------------------------------
+# Configurar la página una sola vez al inicio
+st.set_page_config(
+    page_title="Audio splitter + Transcriptions search optimizado",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+    page_icon="💵"
+)
+
 def show_login_page():
     """Muestra la página de login."""
-    st.set_page_config(
-        page_title="Login - Audio splitter",
-        layout="centered",
-        initial_sidebar_state="collapsed",
-        page_icon="🔐"
-    )
-    
     # Estilos para la página de login
     st.markdown("""
         <style>
@@ -82,9 +103,22 @@ def show_login_page():
         
         if login_button:
             if check_password(password):
+                # Establecer el estado de autenticación
                 st.session_state['authenticated'] = True
                 st.session_state['password_entered'] = password
-                st.rerun()
+                # Mostrar mensaje de éxito
+                st.success("✅ Contraseña correcta!")
+                # Usar JavaScript para recargar la página de forma segura
+                st.markdown(
+                    """
+                    <script>
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 500);
+                    </script>
+                    """,
+                    unsafe_allow_html=True
+                )
             else:
                 st.error("❌ Contraseña incorrecta. Intenta nuevamente.")
         
@@ -103,14 +137,8 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # -------------------------------
-# CONFIGURACIÓN DE LA APP (solo se muestra si está autenticado)
+# ESTILOS DE LA APP (solo se muestra si está autenticado)
 # -------------------------------
-st.set_page_config(
-    page_title="Audio splitter + Transcriptions search optimizado",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-    page_icon="💵"
-)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -123,6 +151,10 @@ col_logout, col_title = st.columns([1, 10])
 with col_logout:
     if st.button("🚪 Salir", key="logout_button"):
         st.session_state['authenticated'] = False
+        # Limpiar otros estados relacionados si es necesario
+        if 'password_entered' in st.session_state:
+            del st.session_state['password_entered']
+        # Rerun para mostrar la página de login
         st.rerun()
 
 with col_title:
@@ -177,28 +209,54 @@ def _get_github_headers():
     return headers
 
 
-def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> List[dict]:
+def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> tuple[List[dict], str]:
+    """
+    Lee archivos .txt desde GitHub.
+    Retorna (lista_de_archivos, mensaje_de_error_o_exito)
+    """
     import re as _re
     if repo_url.count("/") == 1 and "/" in repo_url:
         owner_repo = repo_url
     else:
         m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
         if not m:
-            st.error("URL de repo no válida.")
-            return []
+            return [], "URL de repo no válida."
         owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
     
     headers = _get_github_headers()
     api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
     resp = requests.get(api_url, headers=headers)
     
-    if resp.status_code != 200:
-        return []  # No error, solo retornar vacío para que pueda intentar otra carpeta
+    if resp.status_code == 404:
+        return [], f"La carpeta '{path}' no existe en el repositorio."
+    elif resp.status_code == 403:
+        return [], f"Acceso denegado. El repositorio puede ser privado. Verifica que tengas acceso o configura GITHUB_TOKEN en los secrets."
+    elif resp.status_code != 200:
+        return [], f"Error al acceder a GitHub (código {resp.status_code}): {resp.text[:200]}"
     
-    items = resp.json()
+    try:
+        items = resp.json()
+    except Exception as e:
+        return [], f"Error al procesar la respuesta de GitHub: {str(e)}"
+    
+    # Si items no es una lista, puede ser un archivo único o un error
+    if not isinstance(items, list):
+        if isinstance(items, dict) and items.get("type") == "file":
+            if items.get("name", "").lower().endswith(".txt"):
+                # Es un archivo .txt único
+                try:
+                    content_bytes = base64.b64decode(items.get("content", ""))
+                    content = content_bytes.decode("utf-8", errors="ignore")
+                    return [{"name": items['name'], "content": content}], ""
+                except Exception as e:
+                    return [], f"Error al decodificar el archivo: {str(e)}"
+        return [], f"La ruta '{path}' no es una carpeta o no contiene archivos .txt."
+    
     data = []
+    txt_files_found = 0
     for f in items:
         if f.get("type") == "file" and f.get("name","").lower().endswith(".txt"):
+            txt_files_found += 1
             file_api = f"https://api.github.com/repos/{owner_repo}/contents/{path}/{f['name']}"
             file_resp = requests.get(file_api, headers=headers)
             if file_resp.status_code == 200:
@@ -206,30 +264,48 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                 try:
                     content_bytes = base64.b64decode(file_info.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
-                except Exception:
-                    content = ""
-                data.append({"name": f['name'], "content": content})
-    return data
+                    data.append({"name": f['name'], "content": content})
+                except Exception as e:
+                    return [], f"Error al decodificar el archivo {f['name']}: {str(e)}"
+    
+    if txt_files_found == 0:
+        return [], f"No se encontraron archivos .txt en la carpeta '{path}'."
+    
+    return data, ""
 
 
-def load_transcriptions_from_github(repo_url: str) -> tuple[List[dict], str]:
+def load_transcriptions_from_github(repo_url: str, custom_path: str = "") -> tuple[List[dict], str, str]:
     """
-    Intenta cargar archivos desde 'transcripciones' primero, 
-    si no encuentra nada, intenta desde 'spoti'.
-    Retorna (files, folder_used)
+    Intenta cargar archivos desde una ruta personalizada, 'transcripciones' o 'spoti'.
+    Retorna (files, folder_used, error_message)
     """
+    # Si se especifica una ruta personalizada, intentar primero con esa
+    if custom_path:
+        files, error_msg = read_txt_files_from_github(repo_url, path=custom_path)
+        if files:
+            return files, custom_path, ""
+        elif error_msg and "404" not in error_msg:
+            # Si hay un error real (no solo que no existe), retornarlo
+            return [], "", error_msg
+    
     # Intentar primero en "transcripciones"
-    files = read_txt_files_from_github(repo_url, path="transcripciones")
+    files, error_msg = read_txt_files_from_github(repo_url, path="transcripciones")
     if files:
-        return files, "transcripciones"
+        return files, "transcripciones", ""
+    elif error_msg and "404" not in error_msg:
+        # Si hay un error real, retornarlo
+        return [], "", error_msg
     
     # Si no encuentra nada, intentar en "spoti"
-    files = read_txt_files_from_github(repo_url, path="spoti")
+    files, error_msg = read_txt_files_from_github(repo_url, path="spoti")
     if files:
-        return files, "spoti"
+        return files, "spoti", ""
+    elif error_msg and "404" not in error_msg:
+        # Si hay un error real, retornarlo
+        return [], "", error_msg
     
     # Si no encuentra nada en ninguna carpeta
-    return [], ""
+    return [], "", "No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'."
 
 
 def parse_transcription_text(name: str, text: str) -> pd.DataFrame:
@@ -524,34 +600,42 @@ st.markdown("---")
 
 # --- UI: Transcriptions loader ---
 st.header("2) Leer transcripciones")
-repo_col, _ = st.columns(2)
+repo_col, path_col = st.columns([2, 1])
 with repo_col:
-    gh_url = st.text_input("Repo público GitHub (carpeta transcripciones)", value="https://github.com/jarconett/c_especiales/")
-    
-    # Carga automática al inicio si no hay datos
-    if gh_url and 'trans_files' not in st.session_state:
-        with st.spinner("Cargando archivos .txt desde GitHub..."):
-            files, folder_used = load_transcriptions_from_github(gh_url)
+    gh_url = st.text_input("Repo público GitHub", value="https://github.com/jarconett/c_especiales/")
+with path_col:
+    custom_path = st.text_input("Ruta personalizada (opcional)", placeholder="ej: transcripciones, spoti, docs", help="Deja vacío para buscar en 'transcripciones' y 'spoti' automáticamente")
+
+# Carga automática al inicio si no hay datos
+if gh_url and 'trans_files' not in st.session_state:
+    with st.spinner("Cargando archivos .txt desde GitHub..."):
+        files, folder_used, error_msg = load_transcriptions_from_github(gh_url, custom_path.strip() if custom_path else "")
+        if files:
+            st.session_state['trans_files'] = files
+            st.session_state['trans_df'] = build_transcriptions_dataframe(files)
+            st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(st.session_state['trans_df'])} bloques")
+        else:
+            if error_msg:
+                st.error(f"❌ {error_msg}")
+            else:
+                st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+
+# Botón para recargar manualmente
+if st.button("🔄 Recargar archivos .txt desde GitHub", key="reload_transcriptions"):
+    if gh_url:
+        with st.spinner("Recargando archivos .txt desde GitHub..."):
+            files, folder_used, error_msg = load_transcriptions_from_github(gh_url, custom_path.strip() if custom_path else "")
             if files:
                 st.session_state['trans_files'] = files
                 st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-                st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(st.session_state['trans_df'])} bloques")
+                st.success(f"Recargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(st.session_state['trans_df'])} bloques")
             else:
-                st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
-    
-    # Botón para recargar manualmente
-    if st.button("🔄 Recargar archivos .txt desde GitHub", key="reload_transcriptions"):
-        if gh_url:
-            with st.spinner("Recargando archivos .txt desde GitHub..."):
-                files, folder_used = load_transcriptions_from_github(gh_url)
-                if files:
-                    st.session_state['trans_files'] = files
-                    st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-                    st.success(f"Recargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(st.session_state['trans_df'])} bloques")
+                if error_msg:
+                    st.error(f"❌ {error_msg}")
                 else:
                     st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
-        else:
-            st.error("Por favor, ingresa una URL de repositorio GitHub válida")
+    else:
+        st.error("Por favor, ingresa una URL de repositorio GitHub válida")
 
 
 # --- UI: Search ---
