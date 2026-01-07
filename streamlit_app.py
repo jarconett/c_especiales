@@ -195,18 +195,30 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
 
 # --- GitHub utils ---
 def _get_github_headers():
+    """Obtiene los headers para las peticiones a la API de GitHub."""
     token = None
     try:
-        token = st.secrets.get("GITHUB_TOKEN")
+        token = st.secrets.get("GITHUB_TOKEN", "")
     except Exception:
         token = None
+    
     if not token:
-        token = os.getenv("GITHUB_TOKEN")
-    headers = {}
+        token = os.getenv("GITHUB_TOKEN", "")
+    
+    # Limpiar el token de espacios en blanco
     if token:
+        token = token.strip()
+    
+    headers = {
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    if token:
+        # GitHub acepta tanto "token" como "Bearer" para la autorización
+        # Intentar con "token" primero (formato tradicional de GitHub API v3)
         headers["Authorization"] = f"token {token}"
-    headers["Accept"] = "application/vnd.github.v3+json"
-    return headers
+    
+    return headers, token
 
 
 def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> tuple[List[dict], str]:
@@ -223,14 +235,40 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
             return [], "URL de repo no válida."
         owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
     
-    headers = _get_github_headers()
+    headers, token = _get_github_headers()
     api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
     resp = requests.get(api_url, headers=headers)
     
     if resp.status_code == 404:
         return [], f"La carpeta '{path}' no existe en el repositorio."
     elif resp.status_code == 403:
-        return [], f"Acceso denegado. El repositorio puede ser privado. Verifica que tengas acceso o configura GITHUB_TOKEN en los secrets."
+        # Intentar con formato Bearer si el formato token falló
+        if token and headers.get("Authorization", "").startswith("token "):
+            headers["Authorization"] = f"Bearer {token}"
+            resp = requests.get(api_url, headers=headers)
+            if resp.status_code == 200:
+                # Si funciona con Bearer, continuar
+                pass
+            else:
+                error_detail = ""
+                try:
+                    error_json = resp.json()
+                    error_detail = error_json.get("message", "")
+                except:
+                    error_detail = resp.text[:200]
+                
+                token_info = "Token configurado" if token else "No hay token configurado"
+                return [], f"Acceso denegado (403). {token_info}. Verifica que:\n- El token tenga permisos de lectura para repositorios\n- El repositorio sea accesible con este token\n- El token esté correctamente configurado en Streamlit Cloud Secrets\n\nDetalle: {error_detail}"
+        else:
+            error_detail = ""
+            try:
+                error_json = resp.json()
+                error_detail = error_json.get("message", "")
+            except:
+                error_detail = resp.text[:200]
+            
+            token_info = "Token configurado" if token else "No hay token configurado"
+            return [], f"Acceso denegado (403). {token_info}. Verifica que:\n- El token tenga permisos de lectura para repositorios\n- El repositorio sea accesible con este token\n- El token esté correctamente configurado en Streamlit Cloud Secrets\n\nDetalle: {error_detail}"
     elif resp.status_code != 200:
         return [], f"Error al acceder a GitHub (código {resp.status_code}): {resp.text[:200]}"
     
@@ -600,6 +638,33 @@ st.markdown("---")
 
 # --- UI: Transcriptions loader ---
 st.header("2) Leer transcripciones")
+
+# Mostrar estado del token
+_, token_value = _get_github_headers()
+token_status = "✅ Configurado" if token_value else "❌ No configurado"
+with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False):
+    if token_value:
+        st.success("Token GitHub detectado correctamente")
+        st.info("💡 Si tienes problemas de acceso, verifica que el token tenga permisos de lectura para repositorios.")
+    else:
+        st.warning("No se encontró GITHUB_TOKEN en los secrets ni en variables de entorno.")
+        st.markdown("""
+        **Para configurar el token en Streamlit Cloud:**
+        1. Ve a tu aplicación en Streamlit Cloud
+        2. Haz clic en "Settings" → "Secrets"
+        3. Agrega:
+           ```toml
+           [default]
+           GITHUB_TOKEN = "tu_token_aqui"
+           ```
+        4. Guarda los cambios
+        
+        **Para crear un token en GitHub:**
+        1. Ve a GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+        2. Genera un nuevo token con permisos de **repo** (para repositorios privados)
+        3. Copia el token y pégalo en los secrets de Streamlit Cloud
+        """)
+
 repo_col, path_col = st.columns([2, 1])
 with repo_col:
     gh_url = st.text_input("Repo público GitHub", value="https://github.com/jarconett/c_especiales/")
