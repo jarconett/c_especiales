@@ -10,12 +10,26 @@ import hashlib
 # -------------------------------
 def get_password_hash():
     """Obtiene la contraseña desde secrets o variable de entorno."""
+    password = ""
     try:
         # Intentar obtener desde st.secrets (recomendado para Streamlit Cloud)
-        return st.secrets.get("APP_PASSWORD", "")
+        # Primero intentar directamente
+        if "APP_PASSWORD" in st.secrets:
+            password = st.secrets["APP_PASSWORD"]
+        # Si no está, intentar bajo [default]
+        elif "default" in st.secrets and "APP_PASSWORD" in st.secrets["default"]:
+            password = st.secrets["default"]["APP_PASSWORD"]
+        # También intentar con get() por si acaso
+        elif hasattr(st.secrets, 'get'):
+            password = st.secrets.get("APP_PASSWORD", "")
     except Exception:
-        # Fallback a variable de entorno
-        return os.getenv("APP_PASSWORD", "")
+        pass
+    
+    # Si no se encontró en secrets, intentar variable de entorno
+    if not password:
+        password = os.getenv("APP_PASSWORD", "")
+    
+    return password
 
 def hash_password(password: str) -> str:
     """Genera un hash SHA256 de la contraseña."""
@@ -196,12 +210,22 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
 # --- GitHub utils ---
 def _get_github_headers():
     """Obtiene los headers para las peticiones a la API de GitHub."""
-    token = None
+    token = ""
     try:
-        token = st.secrets.get("GITHUB_TOKEN", "")
+        # Intentar obtener desde st.secrets
+        # Primero intentar directamente
+        if "GITHUB_TOKEN" in st.secrets:
+            token = st.secrets["GITHUB_TOKEN"]
+        # Si no está, intentar bajo [default]
+        elif "default" in st.secrets and "GITHUB_TOKEN" in st.secrets["default"]:
+            token = st.secrets["default"]["GITHUB_TOKEN"]
+        # También intentar con get() por si acaso
+        elif hasattr(st.secrets, 'get'):
+            token = st.secrets.get("GITHUB_TOKEN", "")
     except Exception:
-        token = None
+        pass
     
+    # Si no se encontró en secrets, intentar variable de entorno
     if not token:
         token = os.getenv("GITHUB_TOKEN", "")
     
