@@ -4,6 +4,43 @@ import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata
 from typing import List
 from rapidfuzz import fuzz
 import hashlib
+from datetime import datetime, timedelta, timezone
+
+# Función helper para obtener la zona horaria de España
+def get_spain_timezone():
+    """Retorna la zona horaria de España (Europe/Madrid)."""
+    try:
+        # Intentar usar zoneinfo (Python 3.9+)
+        from zoneinfo import ZoneInfo
+        return ZoneInfo("Europe/Madrid")
+    except ImportError:
+        # Fallback a pytz si zoneinfo no está disponible
+        try:
+            import pytz
+            return pytz.timezone("Europe/Madrid")
+        except ImportError:
+            # Si no hay ninguna librería de timezone, usar UTC+1 como aproximación
+            return timezone(timedelta(hours=1))
+
+def timestamp_to_spain_time(timestamp):
+    """Convierte un timestamp Unix a datetime en hora española."""
+    try:
+        dt_utc = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+        spain_tz = get_spain_timezone()
+        dt_spain = dt_utc.astimezone(spain_tz)
+        return dt_spain
+    except Exception:
+        # Fallback si hay algún error
+        return datetime.fromtimestamp(int(timestamp))
+
+def now_spain():
+    """Retorna la hora actual en España."""
+    try:
+        spain_tz = get_spain_timezone()
+        return datetime.now(spain_tz)
+    except Exception:
+        # Fallback a hora local
+        return datetime.now()
 
 # -------------------------------
 # SISTEMA DE AUTENTICACIÓN
@@ -272,11 +309,11 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
             return [], "URL de repo no válida."
         owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
     
-    # Verificar caché (válido por 5 minutos)
+    # Verificar caché (válido por 30 minutos para reducir peticiones)
     cache_key = f"github_cache_{owner_repo}_{path}"
     if cache_key in st.session_state:
         cached_data, cached_time = st.session_state[cache_key]
-        if datetime.now() - cached_time < timedelta(minutes=5):
+        if datetime.now() - cached_time < timedelta(minutes=30):
             return cached_data, ""
     
     headers, token = _get_github_headers()
@@ -307,14 +344,28 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                 reset_info = ""
                 if reset_time:
                     try:
-                        from datetime import datetime
                         reset_timestamp = int(reset_time)
-                        reset_datetime = datetime.fromtimestamp(reset_timestamp)
-                        reset_info = f"\n\nEl límite se restablecerá aproximadamente a las: {reset_datetime.strftime('%Y-%m-%d %H:%M:%S')}"
+                        reset_datetime = timestamp_to_spain_time(reset_timestamp)
+                        reset_info = f"\n\nEl límite se restablecerá aproximadamente a las: {reset_datetime.strftime('%Y-%m-%d %H:%M:%S')} (hora española)"
                     except:
                         pass
                 
-                return [], f"⚠️ Límite de tasa de la API de GitHub alcanzado.\n\nLímite: {limit} peticiones/hora\nQuedan: {remaining} peticiones disponibles\nUsado: {int(limit) - int(remaining)}/{limit}{reset_info}{token_status_msg}\n\n**Soluciones:**\n- Espera unos minutos antes de volver a intentar\n- Verifica que el token esté correctamente configurado en los secrets\n- Usa el botón '🧪 Probar Token' para verificar que funciona\n- Evita recargar la página repetidamente"
+                # Mensaje mejorado según el límite alcanzado
+                if limit == "5000":
+                    solutions = """**Soluciones:**
+- ⏰ **Espera hasta la hora indicada arriba** - El límite se restablecerá automáticamente
+- 💾 **Usa el caché** - Los datos se guardan en caché por 30 minutos, evita recargar innecesariamente
+- 🗑️ **Limpia el caché solo cuando sea necesario** - Usa el botón 'Limpiar Caché' solo si los archivos han cambiado
+- 📊 **Monitorea tus peticiones** - Con 5000 peticiones/hora puedes hacer ~83 peticiones/minuto
+- ⚠️ **Evita recargas repetidas** - Cada recarga de la página puede hacer múltiples peticiones"""
+                else:
+                    solutions = """**Soluciones:**
+- Espera unos minutos antes de volver a intentar
+- Verifica que el token esté correctamente configurado en los secrets
+- Usa el botón '🧪 Probar Token' para verificar que funciona
+- Evita recargar la página repetidamente"""
+                
+                return [], f"⚠️ Límite de tasa de la API de GitHub alcanzado.\n\n**Estado:**\n- Límite: {limit} peticiones/hora\n- Quedan: {remaining} peticiones disponibles\n- Usado: {int(limit) - int(remaining)}/{limit}{reset_info}{token_status_msg}\n\n{solutions}"
         except:
             pass
     
@@ -375,10 +426,19 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
     
     data = []
     txt_files_found = 0
-    for f in items:
+    total_files = sum(1 for f in items if f.get("type") == "file" and f.get("name","").lower().endswith(".txt"))
+    
+    for idx, f in enumerate(items):
         if f.get("type") == "file" and f.get("name","").lower().endswith(".txt"):
             txt_files_found += 1
             file_api = f"https://api.github.com/repos/{owner_repo}/contents/{path}/{f['name']}"
+            
+            # Agregar un pequeño delay entre peticiones si hay muchos archivos (para evitar rate limit)
+            # Solo delay si hay más de 10 archivos y no es el primero
+            if total_files > 10 and idx > 0:
+                import time
+                time.sleep(0.1)  # 100ms de delay entre peticiones
+            
             file_resp = requests.get(file_api, headers=headers)
             
             # Verificar rate limit en peticiones de archivos individuales
@@ -814,8 +874,10 @@ with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False
         st.markdown("---")
         st.markdown("**📊 Límites de la API de GitHub:**")
         st.markdown("- Sin token: 60 peticiones/hora")
-        st.markdown("- Con token: 5,000 peticiones/hora")
-        st.markdown("- La aplicación usa caché (5 minutos) para reducir peticiones")
+        st.markdown("- Con token: 5,000 peticiones/hora (~83 peticiones/minuto)")
+        st.markdown("- La aplicación usa caché (30 minutos) para reducir peticiones")
+        st.markdown("- Delay automático entre peticiones cuando hay muchos archivos")
+        st.warning("⚠️ **Importante:** Con 5000 peticiones/hora, evita recargar la página repetidamente. El caché ayuda pero cada recarga puede hacer múltiples peticiones.")
         
         # Botón para limpiar caché
         if st.button("🗑️ Limpiar Caché", key="clear_cache"):
