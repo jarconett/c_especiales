@@ -38,15 +38,19 @@ def check_password(password: str) -> bool:
     # Si no es un hash, comparar directamente (para compatibilidad)
     return password == correct_password
 
+# -------------------------------
+# CONFIGURACIÓN INICIAL DE LA APP
+# -------------------------------
+# Configurar la página una sola vez al inicio
+st.set_page_config(
+    page_title="Audio splitter + Transcriptions search optimizado",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+    page_icon="💵"
+)
+
 def show_login_page():
     """Muestra la página de login."""
-    st.set_page_config(
-        page_title="Login - Audio splitter",
-        layout="centered",
-        initial_sidebar_state="collapsed",
-        page_icon="🔐"
-    )
-    
     # Estilos para la página de login
     st.markdown("""
         <style>
@@ -82,8 +86,10 @@ def show_login_page():
         
         if login_button:
             if check_password(password):
+                # Establecer el estado de autenticación
                 st.session_state['authenticated'] = True
                 st.session_state['password_entered'] = password
+                # Rerun para mostrar el contenido autenticado
                 st.rerun()
             else:
                 st.error("❌ Contraseña incorrecta. Intenta nuevamente.")
@@ -103,14 +109,8 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # -------------------------------
-# CONFIGURACIÓN DE LA APP (solo se muestra si está autenticado)
+# ESTILOS DE LA APP (solo se muestra si está autenticado)
 # -------------------------------
-st.set_page_config(
-    page_title="Audio splitter + Transcriptions search optimizado",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-    page_icon="💵"
-)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
