@@ -23,17 +23,20 @@ def hash_password(password: str) -> str:
 
 def safe_rerun():
     """Ejecuta un rerun de forma segura."""
+    # Usar st.rerun() directamente - debería funcionar ahora que st.set_page_config() 
+    # solo se llama una vez al inicio
     try:
-        # Intentar usar st.rerun() primero
         st.rerun()
-    except Exception:
-        # Si falla, intentar usar experimental_rerun (versiones anteriores)
+    except AttributeError:
+        # Si st.rerun() no está disponible, intentar experimental_rerun
         try:
             st.experimental_rerun()
-        except Exception:
-            # Si ambos fallan, simplemente no hacer nada
-            # Streamlit debería hacer rerun automáticamente
-            pass
+        except AttributeError:
+            # Si tampoco está disponible, usar un enfoque alternativo
+            # Forzar rerun mediante cambio de estado
+            if 'force_rerun' not in st.session_state:
+                st.session_state['force_rerun'] = 0
+            st.session_state['force_rerun'] += 1
 
 def check_password(password: str) -> bool:
     """Verifica si la contraseña es correcta."""
@@ -103,8 +106,9 @@ def show_login_page():
                 # Establecer el estado de autenticación
                 st.session_state['authenticated'] = True
                 st.session_state['password_entered'] = password
-                # Forzar rerun de forma segura para mostrar el contenido autenticado
-                safe_rerun()
+                # Rerun para mostrar el contenido autenticado
+                # Ahora debería funcionar porque st.set_page_config() solo se llama una vez al inicio
+                st.rerun()
             else:
                 st.error("❌ Contraseña incorrecta. Intenta nuevamente.")
         
@@ -140,8 +144,8 @@ with col_logout:
         # Limpiar otros estados relacionados si es necesario
         if 'password_entered' in st.session_state:
             del st.session_state['password_entered']
-        # Forzar rerun de forma segura para mostrar la página de login
-        safe_rerun()
+        # Rerun para mostrar la página de login
+        st.rerun()
 
 with col_title:
     st.title("💰🔊 A ganar billete 💵 💶 💴")
