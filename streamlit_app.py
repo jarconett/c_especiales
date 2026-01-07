@@ -3,9 +3,107 @@ from moviepy.editor import AudioFileClip
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata
 from typing import List
 from rapidfuzz import fuzz
+import hashlib
 
 # -------------------------------
-# CONFIGURACIÓN DE LA APP
+# SISTEMA DE AUTENTICACIÓN
+# -------------------------------
+def get_password_hash():
+    """Obtiene la contraseña desde secrets o variable de entorno."""
+    try:
+        # Intentar obtener desde st.secrets (recomendado para Streamlit Cloud)
+        return st.secrets.get("APP_PASSWORD", "")
+    except Exception:
+        # Fallback a variable de entorno
+        return os.getenv("APP_PASSWORD", "")
+
+def hash_password(password: str) -> str:
+    """Genera un hash SHA256 de la contraseña."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def check_password(password: str) -> bool:
+    """Verifica si la contraseña es correcta."""
+    correct_password = get_password_hash()
+    if not correct_password:
+        # Si no hay contraseña configurada, usar una por defecto (cambiar en producción)
+        # Para producción, configura APP_PASSWORD en Streamlit Cloud secrets
+        # Puedes generar el hash con: hashlib.sha256("tu_contraseña".encode()).hexdigest()
+        default_hash = "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9"  # hash de "admin123"
+        return hash_password(password) == default_hash
+    
+    # Si la contraseña en secrets es un hash (64 caracteres hex), comparar hashes
+    if len(correct_password) == 64 and all(c in '0123456789abcdef' for c in correct_password.lower()):
+        return hash_password(password) == correct_password.lower()
+    
+    # Si no es un hash, comparar directamente (para compatibilidad)
+    return password == correct_password
+
+def show_login_page():
+    """Muestra la página de login."""
+    st.set_page_config(
+        page_title="Login - Audio splitter",
+        layout="centered",
+        initial_sidebar_state="collapsed",
+        page_icon="🔐"
+    )
+    
+    # Estilos para la página de login
+    st.markdown("""
+        <style>
+        .login-container {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 2rem;
+            background-color: #f0f2f6;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .login-title {
+            text-align: center;
+            color: #1f77b4;
+            margin-bottom: 2rem;
+        }
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # Contenedor de login
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        st.markdown('<h1 class="login-title">🔐 Acceso Protegido</h1>', unsafe_allow_html=True)
+        
+        password = st.text_input("Contraseña", type="password", key="login_password")
+        
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        with col_btn2:
+            login_button = st.button("Iniciar Sesión", type="primary", use_container_width=True)
+        
+        if login_button:
+            if check_password(password):
+                st.session_state['authenticated'] = True
+                st.session_state['password_entered'] = password
+                st.rerun()
+            else:
+                st.error("❌ Contraseña incorrecta. Intenta nuevamente.")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Información adicional
+        st.markdown("---")
+        st.caption("💡 Para configurar la contraseña en Streamlit Cloud, agrega 'APP_PASSWORD' en los Secrets de la aplicación.")
+
+# Verificar autenticación
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
+
+if not st.session_state['authenticated']:
+    show_login_page()
+    st.stop()
+
+# -------------------------------
+# CONFIGURACIÓN DE LA APP (solo se muestra si está autenticado)
 # -------------------------------
 st.set_page_config(
     page_title="Audio splitter + Transcriptions search optimizado",
@@ -19,7 +117,16 @@ st.markdown("""
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
-st.title("💰🔊 A ganar billete 💵 💶 💴")
+
+# Botón de logout en la esquina superior derecha
+col_logout, col_title = st.columns([1, 10])
+with col_logout:
+    if st.button("🚪 Salir", key="logout_button"):
+        st.session_state['authenticated'] = False
+        st.rerun()
+
+with col_title:
+    st.title("💰🔊 A ganar billete 💵 💶 💴")
 
 # --- Helper functions ---
 FFMPEG_BIN = r"C:\Users\Javier\Downloads\ffmpeg.exe"
