@@ -415,7 +415,7 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                 try:
                     content_bytes = base64.b64decode(items.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
-                    result = [{"name": items['name'], "content": content}]
+                    result = [{"name": items['name'], "content": content, "folder": path}]
                     # Guardar en caché
                     from datetime import datetime
                     st.session_state[cache_key] = (result, datetime.now())
@@ -461,7 +461,7 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                 try:
                     content_bytes = base64.b64decode(file_info.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
-                    data.append({"name": f['name'], "content": content})
+                    data.append({"name": f['name'], "content": content, "folder": path})
                 except Exception as e:
                     return [], f"Error al decodificar el archivo {f['name']}: {str(e)}"
             elif file_resp.status_code != 200:
@@ -745,15 +745,17 @@ def highlight_matching_words(text: str, query: str) -> str:
 
 
 # --- Procesar fechas de archivos ---
-def extract_date_from_filename(filename: str) -> tuple:
+def extract_date_from_filename(filename: str, folder: str = "") -> tuple:
     """
     Extrae la fecha del nombre de archivo.
     Formato esperado: DDMMYYYY seguido de part1, part2, etc.
-    Retorna (fecha_datetime, fecha_str) o (None, None) si no se puede extraer
+    También detecta formato DDMM (4 dígitos) y añade 2025 si es de la carpeta spoti.
+    Retorna (fecha_datetime, fecha_str, es_spoti) o (None, None, False) si no se puede extraer
     """
     try:
         # Remover extensión .txt si existe
         name_without_ext = filename.replace('.txt', '').strip()
+        es_spoti = folder.lower() == "spoti" or "spoti" in filename.lower()
         
         # Buscar patrón de fecha al inicio: DDMMYYYY (8 dígitos)
         match = re.match(r'^(\d{8})', name_without_ext)
@@ -766,30 +768,54 @@ def extract_date_from_filename(filename: str) -> tuple:
             
             try:
                 date_obj = datetime(year, month, day)
-                return date_obj, date_str
+                return date_obj, date_str, es_spoti
             except ValueError:
-                return None, None
+                return None, None, False
+        
+        # Si no encuentra formato DDMMYYYY, buscar DDMM (4 dígitos) para archivos de spoti
+        if es_spoti:
+            match = re.match(r'^(\d{4})', name_without_ext)
+            if match:
+                date_str_short = match.group(1)
+                # Parsear DDMM y añadir 2025
+                day = int(date_str_short[0:2])
+                month = int(date_str_short[2:4])
+                year = 2025  # Añadir año 2025 para archivos de spoti
+                date_str = f"{date_str_short}2025"
+                
+                try:
+                    date_obj = datetime(year, month, day)
+                    return date_obj, date_str, True
+                except ValueError:
+                    return None, None, False
     except Exception:
         pass
     
-    return None, None
+    return None, None, False
 
 
 def get_files_by_date(files: List[dict]) -> dict:
     """
     Agrupa los archivos por fecha.
     Retorna un diccionario: {fecha_datetime: [lista_de_archivos]}
+    Cada archivo incluye información sobre su carpeta de origen.
     """
     files_by_date = {}
     
     for file_info in files:
         filename = file_info.get('name', '')
-        date_obj, date_str = extract_date_from_filename(filename)
+        folder = file_info.get('folder', '')
+        date_obj, date_str, es_spoti = extract_date_from_filename(filename, folder)
         
         if date_obj:
+            # Añadir información sobre si es de spoti
+            file_info_with_folder = file_info.copy()
+            file_info_with_folder['es_spoti'] = es_spoti
+            file_info_with_folder['folder'] = folder
+            
             if date_obj not in files_by_date:
                 files_by_date[date_obj] = []
-            files_by_date[date_obj].append(file_info)
+            files_by_date[date_obj].append(file_info_with_folder)
     
     return files_by_date
 
