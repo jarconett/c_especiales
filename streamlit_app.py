@@ -744,6 +744,145 @@ def highlight_matching_words(text: str, query: str) -> str:
     return ''.join(result_parts)
 
 
+# --- Procesar fechas de archivos ---
+def extract_date_from_filename(filename: str) -> tuple:
+    """
+    Extrae la fecha del nombre de archivo.
+    Formato esperado: DDMMYYYY seguido de part1, part2, etc.
+    Retorna (fecha_datetime, fecha_str) o (None, None) si no se puede extraer
+    """
+    try:
+        # Remover extensión .txt si existe
+        name_without_ext = filename.replace('.txt', '').strip()
+        
+        # Buscar patrón de fecha al inicio: DDMMYYYY (8 dígitos)
+        match = re.match(r'^(\d{8})', name_without_ext)
+        if match:
+            date_str = match.group(1)
+            # Parsear DDMMYYYY
+            day = int(date_str[0:2])
+            month = int(date_str[2:4])
+            year = int(date_str[4:8])
+            
+            try:
+                date_obj = datetime(year, month, day)
+                return date_obj, date_str
+            except ValueError:
+                return None, None
+    except Exception:
+        pass
+    
+    return None, None
+
+
+def get_files_by_date(files: List[dict]) -> dict:
+    """
+    Agrupa los archivos por fecha.
+    Retorna un diccionario: {fecha_datetime: [lista_de_archivos]}
+    """
+    files_by_date = {}
+    
+    for file_info in files:
+        filename = file_info.get('name', '')
+        date_obj, date_str = extract_date_from_filename(filename)
+        
+        if date_obj:
+            if date_obj not in files_by_date:
+                files_by_date[date_obj] = []
+            files_by_date[date_obj].append(file_info)
+    
+    return files_by_date
+
+
+def display_calendar(files_by_date: dict):
+    """
+    Muestra un calendario visual con las fechas y número de archivos.
+    """
+    if not files_by_date:
+        st.warning("No se encontraron archivos con fechas válidas en los nombres.")
+        return
+    
+    # Ordenar fechas
+    sorted_dates = sorted(files_by_date.keys())
+    min_date = sorted_dates[0]
+    max_date = sorted_dates[-1]
+    
+    # Traducción de días de la semana
+    dias_semana = {
+        'Monday': 'Lunes',
+        'Tuesday': 'Martes',
+        'Wednesday': 'Miércoles',
+        'Thursday': 'Jueves',
+        'Friday': 'Viernes',
+        'Saturday': 'Sábado',
+        'Sunday': 'Domingo'
+    }
+    
+    st.markdown(f"**📅 Rango de fechas:** {min_date.strftime('%d/%m/%Y')} - {max_date.strftime('%d/%m/%Y')}")
+    st.markdown(f"**📊 Total de días con archivos:** {len(files_by_date)}")
+    
+    # Contar total de archivos
+    total_files = sum(len(files) for files in files_by_date.values())
+    st.markdown(f"**📁 Total de archivos:** {total_files}")
+    
+    # Crear un DataFrame para mostrar el calendario
+    calendar_data = []
+    for date_obj in sorted_dates:
+        files_list = files_by_date[date_obj]
+        file_names = [f['name'] for f in files_list]
+        dia_semana_en = date_obj.strftime('%A')
+        dia_semana_es = dias_semana.get(dia_semana_en, dia_semana_en)
+        calendar_data.append({
+            'Fecha': date_obj.strftime('%d/%m/%Y'),
+            'Día': dia_semana_es,
+            'Número de archivos': len(files_list),
+            'Archivos': ', '.join(file_names)
+        })
+    
+    df_calendar = pd.DataFrame(calendar_data)
+    
+    # Mostrar tabla
+    st.dataframe(
+        df_calendar,
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    # Mostrar gráfico de barras
+    st.markdown("### 📊 Gráfico de archivos por fecha")
+    chart_data = pd.DataFrame({
+        'Fecha': [d.strftime('%d/%m/%Y') for d in sorted_dates],
+        'Número de archivos': [len(files_by_date[d]) for d in sorted_dates]
+    })
+    
+    st.bar_chart(chart_data.set_index('Fecha'))
+    
+    # Mostrar detalles por fecha
+    st.markdown("### 📅 Detalles por fecha")
+    selected_date = st.selectbox(
+        "Selecciona una fecha para ver detalles:",
+        options=[d.strftime('%d/%m/%Y') for d in sorted_dates]
+    )
+    
+    if selected_date:
+        # Encontrar la fecha correspondiente
+        selected_date_obj = None
+        for date_obj in sorted_dates:
+            if date_obj.strftime('%d/%m/%Y') == selected_date:
+                selected_date_obj = date_obj
+                break
+        
+        if selected_date_obj:
+            files_list = files_by_date[selected_date_obj]
+            st.markdown(f"**Archivos del {selected_date}:**")
+            for file_info in files_list:
+                with st.expander(f"📄 {file_info['name']}"):
+                    # Mostrar preview del contenido
+                    content = file_info.get('content', '')
+                    preview = content[:500] + "..." if len(content) > 500 else content
+                    st.text(preview)
+
+
 # --- Mostrar contexto ±4 líneas con bloque central resaltado ---
 def show_context(df, file, block_idx, query="", context=4):
     sub_df = df[df['file'] == file].reset_index(drop=True)
@@ -978,3 +1117,19 @@ if 'trans_df' in st.session_state:
             for i, row in res.iterrows():
                 with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
                     show_context(df, row['file'], row['block_index'], query=query, context=4)
+
+st.markdown("---")
+
+# --- UI: Calendario de archivos ---
+st.header("4) 📅 Calendario de transcripciones")
+if 'trans_files' in st.session_state and st.session_state['trans_files']:
+    files = st.session_state['trans_files']
+    files_by_date = get_files_by_date(files)
+    
+    if files_by_date:
+        st.info(f"📊 Se encontraron archivos en {len(files_by_date)} fechas diferentes")
+        display_calendar(files_by_date)
+    else:
+        st.warning("⚠️ No se pudieron extraer fechas de los nombres de archivos. Verifica que sigan el formato DDMMYYYY (ej: 30012025 part1.txt)")
+else:
+    st.info("ℹ️ Primero carga los archivos de transcripciones desde GitHub en la sección 2)")
