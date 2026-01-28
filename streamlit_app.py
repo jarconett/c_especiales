@@ -311,7 +311,7 @@ def _get_file_sha(files: List[dict]) -> dict:
     file_index = {}
     for file_info in files:
         filename = file_info.get('name', '')
-        folder = file_info.get('folder', '')
+        folder = file_info.get('folder', '').lower()  # Normalizar a minúsculas
         # Usar SHA del archivo si está disponible, o generar hash del contenido
         if 'sha' in file_info:
             file_index[filename] = {
@@ -478,10 +478,11 @@ def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str
     new_file_index = {}
     has_changes = False
     
-    # Filtrar el índice cacheado para solo archivos de esta carpeta
+    # Filtrar el índice cacheado para solo archivos de esta carpeta (case-insensitive)
+    path_lower = path.lower()
     cached_files_in_folder = {
         filename: info for filename, info in current_file_index.items()
-        if info.get('folder', '') == path
+        if info.get('folder', '').lower() == path_lower
     }
     
     # Crear índice de archivos actuales en GitHub
@@ -493,7 +494,7 @@ def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str
             
             new_file_index[filename] = {
                 'sha': sha,
-                'folder': path,
+                'folder': path.lower(),  # Normalizar a minúsculas
                 'size': size
             }
             
@@ -632,7 +633,7 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                 try:
                     content_bytes = base64.b64decode(items.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
-                    result = [{"name": items['name'], "content": content, "folder": path}]
+                    result = [{"name": items['name'], "content": content, "folder": path.lower()}]
                     # Guardar en caché
                     from datetime import datetime
                     st.session_state[cache_key] = (result, datetime.now())
@@ -678,7 +679,7 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                 try:
                     content_bytes = base64.b64decode(file_info.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
-                    data.append({"name": f['name'], "content": content, "folder": path})
+                    data.append({"name": f['name'], "content": content, "folder": path.lower()})
                 except Exception as e:
                     return [], f"Error al decodificar el archivo {f['name']}: {str(e)}"
             elif file_resp.status_code != 200:
@@ -811,7 +812,7 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
             })
         
         # Determinar carpeta usada (preferir transcripciones si está disponible)
-        folder_used = "transcripciones" if any(f.get('folder') == 'transcripciones' for f in files_light) else "spoti"
+        folder_used = "transcripciones" if any(f.get('folder', '').lower() == 'transcripciones' for f in files_light) else "spoti"
         
         return df_cached, files_light, folder_used, "cached", ""
     
