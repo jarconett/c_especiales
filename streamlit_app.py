@@ -1,6 +1,6 @@
 import streamlit as st
 from moviepy.editor import AudioFileClip
-import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata
+import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
 from typing import List
 from rapidfuzz import fuzz
 import hashlib
@@ -1213,15 +1213,17 @@ def display_calendar(files_by_date: dict, show_transcripciones: bool = True, sho
         files_transcripciones = [f for f in files_list if not (f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower())]
         files_spoti = [f for f in files_list if f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()]
         
-        # Crear lista de nombres con colores HTML
+        # Crear lista de nombres con colores HTML (escapando caracteres especiales)
         file_names_html = []
         for f in files_list:
             name = f['name']
+            # Escapar caracteres especiales HTML
+            name_escaped = html.escape(name)
             es_spoti_file = f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()
             if es_spoti_file:
-                file_names_html.append(f'<span style="color: #FF6B6B; font-weight: bold;">{name}</span>')
+                file_names_html.append(f'<span style="color: #FF6B6B; font-weight: bold;">{name_escaped}</span>')
             else:
-                file_names_html.append(f'<span style="color: #4ECDC4; font-weight: bold;">{name}</span>')
+                file_names_html.append(f'<span style="color: #4ECDC4; font-weight: bold;">{name_escaped}</span>')
         
         dia_semana_en = date_obj.strftime('%A')
         dia_semana_es = dias_semana.get(dia_semana_en, dia_semana_en)
@@ -1295,20 +1297,25 @@ def display_calendar(files_by_date: dict, show_transcripciones: bool = True, sho
         dia_semana_en = date_obj.strftime('%A')
         dia_semana_es = dias_semana.get(dia_semana_en, dia_semana_en)
         
-        # Crear lista de nombres con colores HTML
+        # Crear lista de nombres con colores HTML (escapando caracteres especiales)
         file_names_html = []
         for f in files_list:
             name = f['name']
+            # Escapar caracteres especiales HTML
+            name_escaped = html.escape(name)
             es_spoti_file = f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()
             if es_spoti_file:
-                file_names_html.append(f'<span style="color: #FF6B6B; font-weight: bold;">{name}</span>')
+                file_names_html.append(f'<span style="color: #FF6B6B; font-weight: bold;">{name_escaped}</span>')
             else:
-                file_names_html.append(f'<span style="color: #4ECDC4; font-weight: bold;">{name}</span>')
+                file_names_html.append(f'<span style="color: #4ECDC4; font-weight: bold;">{name_escaped}</span>')
+        
+        # Escapar también el día de la semana por si acaso
+        dia_semana_escaped = html.escape(dia_semana_es)
         
         html_table += f"""
         <tr>
         <td>{date_obj.strftime('%d/%m/%Y')}</td>
-        <td>{dia_semana_es}</td>
+        <td>{dia_semana_escaped}</td>
         <td><strong>{len(files_list)}</strong></td>
         <td style="color: #4ECDC4; font-weight: bold;">{len(files_transcripciones) if show_transcripciones else 0}</td>
         <td style="color: #FF6B6B; font-weight: bold;">{len(files_spoti) if show_spoti else 0}</td>
