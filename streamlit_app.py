@@ -406,7 +406,7 @@ def _save_dataframe_to_github(repo_url: str, df: pd.DataFrame, file_index: dict,
         return False, f"Error al guardar: {str(e)}"
 
 
-@st.cache_data(ttl=72000, show_spinner=False)  # Cachear por 20 horas (los cambios ocurren 1 vez al día)
+@st.cache_data(ttl=72000, max_entries=1, show_spinner=False)  # Cachear por 20 horas, máximo 1 entrada
 def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.DataFrame, dict, str]:
     """
     Carga el DataFrame y el índice desde GitHub.
@@ -416,7 +416,13 @@ def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.D
     NOTA: Esta función está cacheada con @st.cache_data para evitar descargar
     el DataFrame (17MB) en cada ejecución del script.
     El caché dura 20 horas ya que los cambios en transcripciones ocurren 1 vez al día.
+    
+    IMPORTANTE: En Streamlit Cloud, el caché puede limpiarse si el servidor se reinicia.
+    Por eso también usamos session_state como respaldo.
     """
+    import time
+    start_time = time.time()
+    
     owner, repo = _parse_repo_url(repo_url)
     if not owner or not repo:
         return pd.DataFrame(), {}, "URL de repositorio no válida"
@@ -431,7 +437,9 @@ def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.D
         
         # Cargar índice primero con timeout
         index_file_url = f"{base_url}/transcripciones_index.json"
+        index_start = time.time()
         index_resp = requests.get(index_file_url, headers=headers, timeout=30)
+        index_time = time.time() - index_start
         
         if index_resp.status_code != 200:
             return pd.DataFrame(), {}, f"Índice no encontrado: {index_resp.status_code}"
@@ -442,16 +450,33 @@ def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.D
         
         # Cargar DataFrame con timeout razonable para archivos grandes (17MB)
         df_file_url = f"{base_url}/transcripciones_df.pkl"
-        df_resp = requests.get(df_file_url, headers=headers, timeout=30, stream=False)
+        df_start = time.time()
+        df_resp = requests.get(df_file_url, headers=headers, timeout=120, stream=False)  # Aumentar timeout a 2 minutos
+        df_download_time = time.time() - df_start
         
         if df_resp.status_code != 200:
             return pd.DataFrame(), {}, f"DataFrame no encontrado: {df_resp.status_code}"
         
         # Decodificar el contenido base64
+        decode_start = time.time()
         df_content = base64.b64decode(df_resp.json()["content"])
+        decode_time = time.time() - decode_start
         
         # Deserializar el pickle (esto puede tardar un poco con 17MB)
+        pickle_start = time.time()
         df = pickle.loads(df_content)
+        pickle_time = time.time() - pickle_start
+        
+        total_time = time.time() - start_time
+        # Guardar tiempos en session_state para debugging (solo si no está cacheado)
+        if 'df_load_times' not in st.session_state:
+            st.session_state['df_load_times'] = {
+                'index_time': index_time,
+                'download_time': df_download_time,
+                'decode_time': decode_time,
+                'pickle_time': pickle_time,
+                'total_time': total_time
+            }
         
         return df, file_index, ""
         
@@ -736,15 +761,26 @@ def force_regenerate_dataframe(repo_url: str, custom_path: str = "") -> tuple[pd
 def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = "") -> tuple[pd.DataFrame, List[dict], str, str, str]:
     """
     Carga transcripciones de forma optimizada:
-    1. Intenta cargar DataFrame pre-construido desde GitHub
-    2. Detecta cambios comparando SHA de archivos en ambas carpetas (transcripciones y spoti)
-    3. Si hay cambios, regenera y guarda el DataFrame
-    4. Si no hay cambios, usa el DataFrame pre-construido (RÁPIDO)
+    1. PRIMERO: Verifica si ya está en session_state (más rápido, persiste en la sesión)
+    2. SEGUNDO: Intenta cargar DataFrame pre-construido desde GitHub (usa caché de Streamlit)
+    3. Detecta cambios comparando SHA de archivos en ambas carpetas (transcripciones y spoti)
+    4. Si hay cambios, regenera y guarda el DataFrame
+    5. Si no hay cambios, usa el DataFrame pre-construido (RÁPIDO)
     
     Retorna (DataFrame, files, folder_used, status_message, error_message)
-    status_message puede ser: "cached", "regenerated", "first_load", "error"
+    status_message puede ser: "cached", "regenerated", "first_load", "error", "session_cached"
     """
-    # Intentar cargar DataFrame e índice desde GitHub
+    # OPTIMIZACIÓN: Primero verificar session_state (más rápido, persiste en la sesión)
+    cache_key = f"df_cache_{repo_url}"
+    if cache_key in st.session_state:
+        df_cached = st.session_state[cache_key].get('df')
+        cached_index = st.session_state[cache_key].get('index', {})
+        files_light = st.session_state[cache_key].get('files', [])
+        folder_used = st.session_state[cache_key].get('folder', 'transcripciones')
+        if df_cached is not None and not df_cached.empty:
+            return df_cached, files_light, folder_used, "session_cached", ""
+    
+    # Si no está en session_state, intentar cargar desde GitHub (usará caché de Streamlit si está disponible)
     df_cached, cached_index, load_error = _load_dataframe_from_github(repo_url)
     
     if df_cached.empty or load_error:
@@ -762,6 +798,15 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
         if not save_success:
             # No es crítico si falla guardar, solo mostrar advertencia
             pass
+        
+        # Guardar también en session_state como caché adicional
+        cache_key = f"df_cache_{repo_url}"
+        st.session_state[cache_key] = {
+            'df': df,
+            'index': file_index,
+            'files': files,
+            'folder': folder_used
+        }
         
         return df, files, folder_used, "first_load", ""
     
@@ -798,6 +843,15 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
         else:
             folder_used = "transcripciones"
         
+        # Guardar en session_state como caché adicional (útil en Streamlit Cloud)
+        cache_key = f"df_cache_{repo_url}"
+        st.session_state[cache_key] = {
+            'df': df_cached,
+            'index': cached_index,
+            'files': files_light,
+            'folder': folder_used
+        }
+        
         return df_cached, files_light, folder_used, "cached", ""
     
     # Hay cambios, regenerar DataFrame
@@ -815,6 +869,15 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
     if not save_success:
         # No es crítico si falla guardar
         pass
+    
+    # Guardar también en session_state como caché adicional
+    cache_key = f"df_cache_{repo_url}"
+    st.session_state[cache_key] = {
+        'df': df,
+        'index': file_index,
+        'files': files,
+        'folder': folder_used
+    }
     
     return df, files, folder_used, "regenerated", ""
 
@@ -1696,35 +1759,70 @@ if gh_url:
     st.session_state['gh_url'] = gh_url
 
 # Carga automática al inicio si no hay datos (optimizada)
-# Verificar tanto trans_files como trans_df para evitar cargas duplicadas
-if gh_url and ('trans_files' not in st.session_state or 'trans_df' not in st.session_state):
-    # Verificar si ya se está cargando para evitar ejecuciones múltiples
-    if 'loading_dataframe' not in st.session_state:
-        st.session_state['loading_dataframe'] = True
-        with st.spinner("Cargando transcripciones desde GitHub (optimizado)..."):
-            df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
-                gh_url, custom_path.strip() if custom_path else ""
-            )
-            if not df.empty:
-                st.session_state['trans_files'] = files
-                st.session_state['trans_df'] = df
-                st.session_state['dataframe_loaded'] = True
-                if status == "cached":
-                    st.success(f"⚡ Carga rápida desde caché: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
-                elif status == "regenerated":
-                    st.success(f"🔄 DataFrame regenerado: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
-                elif status == "first_load":
-                    st.success(f"📥 Primera carga: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+# PRIORIDAD: 1) session_state (trans_df/trans_files), 2) caché adicional (df_cache), 3) caché Streamlit, 4) GitHub
+if gh_url:
+    # Nivel 1: Si ya tenemos los datos en session_state estándar, no hacer nada (más rápido)
+    if 'trans_df' in st.session_state and 'trans_files' in st.session_state:
+        df_existing = st.session_state.get('trans_df')
+        files_existing = st.session_state.get('trans_files')
+        if not df_existing.empty and files_existing:
+            # Los datos ya están cargados, no hacer nada
+            pass
+    # Nivel 2: Verificar caché adicional en session_state antes de descargar
+    elif f"df_cache_{gh_url}" in st.session_state:
+        cache_data = st.session_state[f"df_cache_{gh_url}"]
+        df_cached = cache_data.get('df')
+        files_cached = cache_data.get('files', [])
+        folder_cached = cache_data.get('folder', 'transcripciones')
+        if df_cached is not None and not df_cached.empty:
+            # Restaurar desde caché adicional (muy rápido, sin descargar)
+            st.session_state['trans_df'] = df_cached
+            st.session_state['trans_files'] = files_cached
+            st.session_state['dataframe_loaded'] = True
+            st.success(f"⚡⚡ Carga instantánea desde caché de sesión: {len(df_cached)} bloques desde carpeta '{folder_cached}' ({len(files_cached)} archivos)")
+    # Nivel 3 y 4: Cargar desde caché de Streamlit o GitHub
+    elif 'trans_files' not in st.session_state or 'trans_df' not in st.session_state:
+        # Verificar si ya se está cargando para evitar ejecuciones múltiples
+        if 'loading_dataframe' not in st.session_state:
+            st.session_state['loading_dataframe'] = True
+            import time
+            start_time = time.time()
+            with st.spinner("Cargando transcripciones desde GitHub (optimizado)..."):
+                df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
+                    gh_url, custom_path.strip() if custom_path else ""
+                )
+                elapsed_time = time.time() - start_time
+                if not df.empty:
+                    st.session_state['trans_files'] = files
+                    st.session_state['trans_df'] = df
+                    st.session_state['dataframe_loaded'] = True
+                    
+                    # Mostrar información de tiempos si está disponible
+                    time_info = ""
+                    if 'df_load_times' in st.session_state:
+                        times = st.session_state['df_load_times']
+                        time_info = f" | Descarga: {times.get('download_time', 0):.1f}s, Despickle: {times.get('pickle_time', 0):.1f}s"
+                    
+                    if status == "session_cached":
+                        st.success(f"⚡⚡ Carga instantánea desde session_state: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.2f}s")
+                    elif status == "cached":
+                        # Si viene del caché de Streamlit, debería ser muy rápido (< 5s)
+                        cache_source = "caché de Streamlit" if elapsed_time < 5 else "caché (pero tardó descargando desde GitHub)"
+                        st.success(f"⚡ Carga desde {cache_source}: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo total: {elapsed_time:.1f}s{time_info}")
+                    elif status == "regenerated":
+                        st.success(f"🔄 DataFrame regenerado: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.1f}s{time_info}")
+                    elif status == "first_load":
+                        st.success(f"📥 Primera carga desde GitHub: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.1f}s{time_info}")
+                    else:
+                        st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(df)} bloques - Tiempo: {elapsed_time:.1f}s{time_info}")
                 else:
-                    st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(df)} bloques")
-            else:
-                if error_msg:
-                    st.error(f"❌ {error_msg}")
-                else:
-                    st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
-        # Limpiar la bandera después de cargar
-        if 'loading_dataframe' in st.session_state:
-            del st.session_state['loading_dataframe']
+                    if error_msg:
+                        st.error(f"❌ {error_msg}")
+                    else:
+                        st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+            # Limpiar la bandera después de cargar
+            if 'loading_dataframe' in st.session_state:
+                del st.session_state['loading_dataframe']
 
 # Botones para recargar
 button_col1, button_col2 = st.columns([2, 1])
