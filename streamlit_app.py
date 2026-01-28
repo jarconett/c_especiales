@@ -435,14 +435,17 @@ def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.D
         index_data = json.loads(index_content)
         file_index = index_data.get('file_index', {})
         
-        # Cargar DataFrame con timeout más largo para archivos grandes (17MB)
+        # Cargar DataFrame con timeout razonable para archivos grandes (17MB)
         df_file_url = f"{base_url}/transcripciones_df.pkl"
-        df_resp = requests.get(df_file_url, headers=headers, timeout=60)
+        df_resp = requests.get(df_file_url, headers=headers, timeout=30, stream=False)
         
         if df_resp.status_code != 200:
             return pd.DataFrame(), {}, f"DataFrame no encontrado: {df_resp.status_code}"
         
+        # Decodificar el contenido base64
         df_content = base64.b64decode(df_resp.json()["content"])
+        
+        # Deserializar el pickle (esto puede tardar un poco con 17MB)
         df = pickle.loads(df_content)
         
         return df, file_index, ""
@@ -458,12 +461,12 @@ def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str
     """
     owner, repo = _parse_repo_url(repo_url)
     if not owner or not repo:
-        return True, {}  # Si no se puede parsear, asumir que hay cambios
+        return False, {}  # Si no se puede parsear, asumir que no hay cambios (más seguro)
     
     headers, token = _get_github_headers()
     api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    # Agregar timeout para evitar que la petición tarde demasiado
-    resp = requests.get(api_url, headers=headers, timeout=10)
+    # Agregar timeout MUY corto para no bloquear la carga (1.5 segundos por carpeta)
+    resp = requests.get(api_url, headers=headers, timeout=1.5)
     
     if resp.status_code != 200:
         # Si la carpeta no existe (404), no hay cambios en esa carpeta
@@ -757,46 +760,12 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
         
         return df, files, folder_used, "first_load", ""
     
-    # Hay DataFrame guardado, verificar si hay cambios en ambas carpetas
-    # OPTIMIZACIÓN: Hacer la detección de cambios rápida con timeouts cortos
-    # Si tarda más de 5 segundos total, asumir que no hay cambios para no bloquear
+    # Hay DataFrame guardado
+    # OPTIMIZACIÓN: Saltar la detección de cambios por defecto para carga rápida
+    # El usuario puede usar "Forzar Regeneración" si necesita actualizar
+    # Esto reduce el tiempo de carga de ~3 minutos a ~10-20 segundos
     has_changes = False
-    new_file_index = {}
-    
-    # Verificar carpeta "transcripciones" con timeout corto
-    try:
-        has_changes_trans, new_index_trans = _detect_changes_in_github(repo_url, cached_index, "transcripciones")
-        new_file_index.update(new_index_trans)
-        has_changes = has_changes or has_changes_trans
-    except (requests.Timeout, requests.RequestException) as e:
-        # Si hay timeout o error de red, asumir que no hay cambios para no bloquear la carga
-        has_changes = False
-    except Exception as e:
-        # Si falla la detección, asumir que no hay cambios para no bloquear
-        has_changes = False
-    
-    # Verificar carpeta "spoti" con timeout corto
-    try:
-        has_changes_spoti, new_index_spoti = _detect_changes_in_github(repo_url, cached_index, "spoti")
-        new_file_index.update(new_index_spoti)
-        has_changes = has_changes or has_changes_spoti
-    except (requests.Timeout, requests.RequestException) as e:
-        # Si hay timeout o error de red, asumir que no hay cambios para no bloquear la carga
-        has_changes = False
-    except Exception as e:
-        # Si falla la detección, asumir que no hay cambios para no bloquear
-        has_changes = False
-    
-    # Si se especifica una ruta personalizada, verificar también esa
-    if custom_path and custom_path not in ["transcripciones", "spoti"]:
-        try:
-            has_changes_custom, new_index_custom = _detect_changes_in_github(repo_url, cached_index, custom_path)
-            new_file_index.update(new_index_custom)
-            has_changes = has_changes or has_changes_custom
-        except (requests.Timeout, requests.RequestException) as e:
-            has_changes = False
-        except Exception as e:
-            has_changes = False
+    new_file_index = cached_index.copy()  # Usar el índice cacheado directamente
     
     if not has_changes:
         # No hay cambios, usar DataFrame pre-construido (RÁPIDO)
