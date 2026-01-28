@@ -293,6 +293,222 @@ def _get_github_headers():
     return headers, token
 
 
+def _parse_repo_url(repo_url: str) -> tuple[str, str]:
+    """Parsea la URL del repositorio y retorna (owner, repo)."""
+    import re as _re
+    if repo_url.count("/") == 1 and "/" in repo_url:
+        parts = repo_url.split("/")
+        return parts[0], parts[1]
+    else:
+        m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
+        if not m:
+            return "", ""
+        return m.group(1), m.group(2).replace('.git', '')
+
+
+def _get_file_sha(files: List[dict]) -> dict:
+    """Crea un diccionario con SHA de archivos para detectar cambios."""
+    file_index = {}
+    for file_info in files:
+        filename = file_info.get('name', '')
+        folder = file_info.get('folder', '')
+        # Usar SHA del archivo si está disponible, o generar hash del contenido
+        if 'sha' in file_info:
+            file_index[filename] = {
+                'sha': file_info['sha'],
+                'folder': folder,
+                'size': file_info.get('size', 0)
+            }
+        else:
+            # Si no hay SHA, generar hash del contenido
+            content = file_info.get('content', '')
+            content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+            file_index[filename] = {
+                'sha': content_hash,
+                'folder': folder,
+                'size': len(content)
+            }
+    return file_index
+
+
+def _save_dataframe_to_github(repo_url: str, df: pd.DataFrame, file_index: dict, path: str = "data") -> tuple[bool, str]:
+    """
+    Guarda el DataFrame serializado y el índice en GitHub.
+    Retorna (éxito, mensaje_error)
+    """
+    owner, repo = _parse_repo_url(repo_url)
+    if not owner or not repo:
+        return False, "URL de repositorio no válida"
+    
+    headers, token = _get_github_headers()
+    if not token:
+        return False, "Se requiere GITHUB_TOKEN para guardar el DataFrame"
+    
+    try:
+        import pickle
+        import json
+        
+        # Serializar DataFrame
+        df_bytes = pickle.dumps(df)
+        df_base64 = base64.b64encode(df_bytes).decode('utf-8')
+        
+        # Crear índice con metadatos
+        index_data = {
+            'file_index': file_index,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'total_files': len(file_index),
+            'df_rows': len(df)
+        }
+        index_json = json.dumps(index_data, indent=2)
+        index_base64 = base64.b64encode(index_json.encode('utf-8')).decode('utf-8')
+        
+        # Intentar crear/actualizar archivos en GitHub
+        base_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+        
+        # Guardar DataFrame
+        df_file_url = f"{base_url}/transcripciones_df.pkl"
+        df_data = {
+            "message": f"Actualizar DataFrame de transcripciones ({len(df)} filas, {len(file_index)} archivos)",
+            "content": df_base64
+        }
+        
+        # Verificar si el archivo ya existe para obtener su SHA
+        df_resp = requests.get(df_file_url, headers=headers)
+        if df_resp.status_code == 200:
+            df_data["sha"] = df_resp.json().get("sha")
+            df_resp = requests.put(df_file_url, headers=headers, json=df_data)
+        else:
+            df_resp = requests.put(df_file_url, headers=headers, json=df_data)
+        
+        if df_resp.status_code not in [200, 201]:
+            return False, f"Error al guardar DataFrame: {df_resp.status_code} - {df_resp.text[:200]}"
+        
+        # Guardar índice
+        index_file_url = f"{base_url}/transcripciones_index.json"
+        index_data_put = {
+            "message": f"Actualizar índice de transcripciones ({len(file_index)} archivos)",
+            "content": index_base64
+        }
+        
+        index_resp = requests.get(index_file_url, headers=headers)
+        if index_resp.status_code == 200:
+            index_data_put["sha"] = index_resp.json().get("sha")
+            index_resp = requests.put(index_file_url, headers=headers, json=index_data_put)
+        else:
+            index_resp = requests.put(index_file_url, headers=headers, json=index_data_put)
+        
+        if index_resp.status_code not in [200, 201]:
+            return False, f"Error al guardar índice: {index_resp.status_code} - {index_resp.text[:200]}"
+        
+        return True, ""
+        
+    except Exception as e:
+        return False, f"Error al guardar: {str(e)}"
+
+
+def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.DataFrame, dict, str]:
+    """
+    Carga el DataFrame y el índice desde GitHub.
+    Retorna (DataFrame, file_index, mensaje_error)
+    Si hay error, retorna (DataFrame vacío, {}, mensaje_error)
+    """
+    owner, repo = _parse_repo_url(repo_url)
+    if not owner or not repo:
+        return pd.DataFrame(), {}, "URL de repositorio no válida"
+    
+    headers, token = _get_github_headers()
+    
+    try:
+        import pickle
+        import json
+        
+        base_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+        
+        # Cargar índice primero
+        index_file_url = f"{base_url}/transcripciones_index.json"
+        index_resp = requests.get(index_file_url, headers=headers)
+        
+        if index_resp.status_code != 200:
+            return pd.DataFrame(), {}, f"Índice no encontrado: {index_resp.status_code}"
+        
+        index_content = base64.b64decode(index_resp.json()["content"]).decode('utf-8')
+        index_data = json.loads(index_content)
+        file_index = index_data.get('file_index', {})
+        
+        # Cargar DataFrame
+        df_file_url = f"{base_url}/transcripciones_df.pkl"
+        df_resp = requests.get(df_file_url, headers=headers)
+        
+        if df_resp.status_code != 200:
+            return pd.DataFrame(), {}, f"DataFrame no encontrado: {df_resp.status_code}"
+        
+        df_content = base64.b64decode(df_resp.json()["content"])
+        df = pickle.loads(df_content)
+        
+        return df, file_index, ""
+        
+    except Exception as e:
+        return pd.DataFrame(), {}, f"Error al cargar: {str(e)}"
+
+
+def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str = "transcripciones") -> tuple[bool, dict]:
+    """
+    Compara el índice actual con los archivos en GitHub para detectar cambios en una carpeta específica.
+    Retorna (hay_cambios, nuevo_file_index)
+    """
+    owner, repo = _parse_repo_url(repo_url)
+    if not owner or not repo:
+        return True, {}  # Si no se puede parsear, asumir que hay cambios
+    
+    headers, token = _get_github_headers()
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    resp = requests.get(api_url, headers=headers)
+    
+    if resp.status_code != 200:
+        # Si la carpeta no existe (404), no hay cambios en esa carpeta
+        if resp.status_code == 404:
+            return False, {}
+        return True, {}  # Si hay otro error, asumir que hay cambios
+    
+    items = resp.json()
+    if not isinstance(items, list):
+        return True, {}
+    
+    new_file_index = {}
+    has_changes = False
+    
+    # Filtrar el índice cacheado para solo archivos de esta carpeta
+    cached_files_in_folder = {
+        filename: info for filename, info in current_file_index.items()
+        if info.get('folder', '') == path
+    }
+    
+    # Crear índice de archivos actuales en GitHub
+    for item in items:
+        if item.get("type") == "file" and item.get("name", "").lower().endswith(".txt"):
+            filename = item["name"]
+            sha = item.get("sha", "")
+            size = item.get("size", 0)
+            
+            new_file_index[filename] = {
+                'sha': sha,
+                'folder': path,
+                'size': size
+            }
+            
+            # Comparar con el índice anterior (solo archivos de esta carpeta)
+            if filename not in cached_files_in_folder:
+                has_changes = True  # Archivo nuevo
+            elif cached_files_in_folder[filename].get('sha') != sha:
+                has_changes = True  # Archivo modificado
+    
+    # Verificar si se eliminaron archivos de esta carpeta
+    if len(new_file_index) != len(cached_files_in_folder):
+        has_changes = True
+    
+    return has_changes, new_file_index
+
+
 def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> tuple[List[dict], str]:
     """
     Lee archivos .txt desde GitHub.
@@ -480,6 +696,116 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
     st.session_state[cache_key] = (data, datetime.now())
     
     return data, ""
+
+
+def force_regenerate_dataframe(repo_url: str, custom_path: str = "") -> tuple[pd.DataFrame, List[dict], str, str]:
+    """
+    Fuerza la regeneración del DataFrame ignorando el caché.
+    Carga todos los archivos desde cero, construye el DataFrame y lo guarda en GitHub.
+    
+    Retorna (DataFrame, files, folder_used, error_message)
+    """
+    # Cargar archivos desde cero (ignorando caché)
+    files, folder_used, error_msg = load_transcriptions_from_github(repo_url, custom_path)
+    if not files:
+        return pd.DataFrame(), [], "", error_msg if error_msg else "No se encontraron archivos"
+    
+    # Construir DataFrame
+    df = build_transcriptions_dataframe(files)
+    
+    # Guardar en GitHub para próximas cargas
+    file_index = _get_file_sha(files)
+    save_success, save_error = _save_dataframe_to_github(repo_url, df, file_index)
+    if not save_success:
+        # No es crítico si falla guardar, pero mostrar advertencia
+        error_msg = f"⚠️ DataFrame regenerado pero no se pudo guardar en GitHub: {save_error}"
+    
+    return df, files, folder_used, error_msg if not save_success else ""
+
+
+def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = "") -> tuple[pd.DataFrame, List[dict], str, str, str]:
+    """
+    Carga transcripciones de forma optimizada:
+    1. Intenta cargar DataFrame pre-construido desde GitHub
+    2. Detecta cambios comparando SHA de archivos en ambas carpetas (transcripciones y spoti)
+    3. Si hay cambios, regenera y guarda el DataFrame
+    4. Si no hay cambios, usa el DataFrame pre-construido (RÁPIDO)
+    
+    Retorna (DataFrame, files, folder_used, status_message, error_message)
+    status_message puede ser: "cached", "regenerated", "first_load", "error"
+    """
+    # Intentar cargar DataFrame e índice desde GitHub
+    df_cached, cached_index, load_error = _load_dataframe_from_github(repo_url)
+    
+    if df_cached.empty or load_error:
+        # No hay DataFrame guardado o error al cargar, cargar desde cero
+        files, folder_used, error_msg = load_transcriptions_from_github(repo_url, custom_path)
+        if not files:
+            return pd.DataFrame(), [], "", "error", error_msg
+        
+        # Construir DataFrame
+        df = build_transcriptions_dataframe(files)
+        
+        # Guardar en GitHub para próximas cargas
+        file_index = _get_file_sha(files)
+        save_success, save_error = _save_dataframe_to_github(repo_url, df, file_index)
+        if not save_success:
+            # No es crítico si falla guardar, solo mostrar advertencia
+            pass
+        
+        return df, files, folder_used, "first_load", ""
+    
+    # Hay DataFrame guardado, verificar si hay cambios en ambas carpetas
+    # Verificar carpeta "transcripciones"
+    has_changes_trans, new_index_trans = _detect_changes_in_github(repo_url, cached_index, "transcripciones")
+    # Verificar carpeta "spoti"
+    has_changes_spoti, new_index_spoti = _detect_changes_in_github(repo_url, cached_index, "spoti")
+    
+    # Combinar índices de ambas carpetas
+    new_file_index = {**new_index_trans, **new_index_spoti}
+    has_changes = has_changes_trans or has_changes_spoti
+    
+    # Si se especifica una ruta personalizada, verificar también esa
+    if custom_path and custom_path not in ["transcripciones", "spoti"]:
+        has_changes_custom, new_index_custom = _detect_changes_in_github(repo_url, cached_index, custom_path)
+        new_file_index.update(new_index_custom)
+        has_changes = has_changes or has_changes_custom
+    
+    if not has_changes:
+        # No hay cambios, usar DataFrame pre-construido (RÁPIDO)
+        # Necesitamos los archivos para el calendario, pero no necesitamos cargar el contenido completo
+        # Solo necesitamos la lista de nombres y metadatos
+        files_light = []
+        for filename, file_info in cached_index.items():
+            files_light.append({
+                'name': filename,
+                'folder': file_info.get('folder', 'transcripciones'),
+                'content': '',  # No cargamos contenido si no hay cambios (se carga bajo demanda si es necesario)
+                'sha': file_info.get('sha', '')
+            })
+        
+        # Determinar carpeta usada (preferir transcripciones si está disponible)
+        folder_used = "transcripciones" if any(f.get('folder') == 'transcripciones' for f in files_light) else "spoti"
+        
+        return df_cached, files_light, folder_used, "cached", ""
+    
+    # Hay cambios, regenerar DataFrame
+    files, folder_used, error_msg = load_transcriptions_from_github(repo_url, custom_path)
+    if not files:
+        # Si falla cargar archivos, usar DataFrame cacheado como fallback
+        return df_cached, [], "transcripciones", "error", f"Error al cargar archivos actualizados: {error_msg}"
+    
+    # Construir nuevo DataFrame
+    df = build_transcriptions_dataframe(files)
+    
+    # Guardar nuevo DataFrame en GitHub
+    file_index = _get_file_sha(files)
+    save_success, save_error = _save_dataframe_to_github(repo_url, df, file_index)
+    if not save_success:
+        # No es crítico si falla guardar
+        pass
+    
+    return df, files, folder_used, "regenerated", ""
 
 
 def load_transcriptions_from_github(repo_url: str, custom_path: str = "") -> tuple[List[dict], str, str]:
@@ -820,16 +1146,37 @@ def get_files_by_date(files: List[dict]) -> dict:
     return files_by_date
 
 
-def display_calendar(files_by_date: dict):
+def display_calendar(files_by_date: dict, show_transcripciones: bool = True, show_spoti: bool = True):
     """
     Muestra un calendario visual con las fechas y número de archivos.
+    Permite filtrar por origen (transcripciones o spoti) y muestra colores diferentes.
     """
     if not files_by_date:
         st.warning("No se encontraron archivos con fechas válidas en los nombres.")
         return
     
+    # Filtrar archivos según los checkboxes
+    filtered_files_by_date = {}
+    for date_obj, files_list in files_by_date.items():
+        filtered_files = []
+        for file_info in files_list:
+            folder = file_info.get('folder', '').lower()
+            es_spoti = file_info.get('es_spoti', False) or 'spoti' in folder
+            
+            if es_spoti and show_spoti:
+                filtered_files.append(file_info)
+            elif not es_spoti and show_transcripciones:
+                filtered_files.append(file_info)
+        
+        if filtered_files:
+            filtered_files_by_date[date_obj] = filtered_files
+    
+    if not filtered_files_by_date:
+        st.warning("No hay archivos que coincidan con los filtros seleccionados.")
+        return
+    
     # Ordenar fechas
-    sorted_dates = sorted(files_by_date.keys())
+    sorted_dates = sorted(filtered_files_by_date.keys())
     min_date = sorted_dates[0]
     max_date = sorted_dates[-1]
     
@@ -844,44 +1191,156 @@ def display_calendar(files_by_date: dict):
         'Sunday': 'Domingo'
     }
     
+    # Contar archivos por origen
+    total_transcripciones = sum(len([f for f in files if not (f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower())]) 
+                                for files in filtered_files_by_date.values())
+    total_spoti = sum(len([f for f in files if f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()]) 
+                      for files in filtered_files_by_date.values())
+    
     st.markdown(f"**📅 Rango de fechas:** {min_date.strftime('%d/%m/%Y')} - {max_date.strftime('%d/%m/%Y')}")
-    st.markdown(f"**📊 Total de días con archivos:** {len(files_by_date)}")
+    st.markdown(f"**📊 Total de días con archivos:** {len(filtered_files_by_date)}")
+    st.markdown(f"**📁 Total de archivos:** {total_transcripciones + total_spoti}")
+    if show_transcripciones and show_spoti:
+        st.markdown(f"   - 📝 Transcripciones: {total_transcripciones} archivos")
+        st.markdown(f"   - 🎵 Spoti: {total_spoti} archivos")
     
-    # Contar total de archivos
-    total_files = sum(len(files) for files in files_by_date.values())
-    st.markdown(f"**📁 Total de archivos:** {total_files}")
-    
-    # Crear un DataFrame para mostrar el calendario
+    # Crear un DataFrame para mostrar el calendario con información de origen
     calendar_data = []
     for date_obj in sorted_dates:
-        files_list = files_by_date[date_obj]
-        file_names = [f['name'] for f in files_list]
+        files_list = filtered_files_by_date[date_obj]
+        
+        # Separar archivos por origen
+        files_transcripciones = [f for f in files_list if not (f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower())]
+        files_spoti = [f for f in files_list if f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()]
+        
+        # Crear lista de nombres con colores HTML
+        file_names_html = []
+        for f in files_list:
+            name = f['name']
+            es_spoti_file = f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()
+            if es_spoti_file:
+                file_names_html.append(f'<span style="color: #FF6B6B; font-weight: bold;">{name}</span>')
+            else:
+                file_names_html.append(f'<span style="color: #4ECDC4; font-weight: bold;">{name}</span>')
+        
         dia_semana_en = date_obj.strftime('%A')
         dia_semana_es = dias_semana.get(dia_semana_en, dia_semana_en)
+        
         calendar_data.append({
             'Fecha': date_obj.strftime('%d/%m/%Y'),
             'Día': dia_semana_es,
-            'Número de archivos': len(files_list),
-            'Archivos': ', '.join(file_names)
+            'Total': len(files_list),
+            'Transcripciones': len(files_transcripciones) if show_transcripciones else 0,
+            'Spoti': len(files_spoti) if show_spoti else 0,
+            'Archivos': ', '.join([f['name'] for f in files_list])
         })
     
     df_calendar = pd.DataFrame(calendar_data)
     
-    # Mostrar tabla
-    st.dataframe(
-        df_calendar,
-        use_container_width=True,
-        hide_index=True
-    )
+    # Mostrar tabla con colores
+    st.markdown("### 📋 Tabla de archivos por fecha")
+    st.markdown("""
+    <style>
+    .legend {
+        margin: 10px 0;
+        padding: 10px;
+        background-color: #f0f0f0;
+        border-radius: 5px;
+    }
+    .calendar-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+    }
+    .calendar-table th {
+        background-color: #4CAF50;
+        color: white;
+        padding: 8px;
+        text-align: left;
+        border: 1px solid #ddd;
+    }
+    .calendar-table td {
+        padding: 8px;
+        border: 1px solid #ddd;
+    }
+    </style>
+    <div class="legend">
+        <strong>Leyenda:</strong><br>
+        <span style="color: #4ECDC4; font-weight: bold;">📝 Azul/Turquesa = Transcripciones</span><br>
+        <span style="color: #FF6B6B; font-weight: bold;">🎵 Rojo = Spoti</span>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Mostrar gráfico de barras
+    # Crear tabla HTML personalizada para mostrar archivos con colores
+    html_table = """
+    <table class="calendar-table">
+    <thead>
+    <tr>
+    <th>Fecha</th>
+    <th>Día</th>
+    <th>Total</th>
+    <th>Transcripciones</th>
+    <th>Spoti</th>
+    <th>Archivos</th>
+    </tr>
+    </thead>
+    <tbody>
+    """
+    
+    for date_obj in sorted_dates:
+        files_list = filtered_files_by_date[date_obj]
+        files_transcripciones = [f for f in files_list if not (f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower())]
+        files_spoti = [f for f in files_list if f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()]
+        
+        dia_semana_en = date_obj.strftime('%A')
+        dia_semana_es = dias_semana.get(dia_semana_en, dia_semana_en)
+        
+        # Crear lista de nombres con colores HTML
+        file_names_html = []
+        for f in files_list:
+            name = f['name']
+            es_spoti_file = f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()
+            if es_spoti_file:
+                file_names_html.append(f'<span style="color: #FF6B6B; font-weight: bold;">{name}</span>')
+            else:
+                file_names_html.append(f'<span style="color: #4ECDC4; font-weight: bold;">{name}</span>')
+        
+        html_table += f"""
+        <tr>
+        <td>{date_obj.strftime('%d/%m/%Y')}</td>
+        <td>{dia_semana_es}</td>
+        <td><strong>{len(files_list)}</strong></td>
+        <td style="color: #4ECDC4; font-weight: bold;">{len(files_transcripciones) if show_transcripciones else 0}</td>
+        <td style="color: #FF6B6B; font-weight: bold;">{len(files_spoti) if show_spoti else 0}</td>
+        <td>{', '.join(file_names_html)}</td>
+        </tr>
+        """
+    
+    html_table += """
+    </tbody>
+    </table>
+    """
+    
+    st.markdown(html_table, unsafe_allow_html=True)
+    
+    # Mostrar gráfico de barras con colores diferentes
     st.markdown("### 📊 Gráfico de archivos por fecha")
-    chart_data = pd.DataFrame({
-        'Fecha': [d.strftime('%d/%m/%Y') for d in sorted_dates],
-        'Número de archivos': [len(files_by_date[d]) for d in sorted_dates]
-    })
-    
-    st.bar_chart(chart_data.set_index('Fecha'))
+    if show_transcripciones and show_spoti:
+        # Gráfico apilado mostrando ambos orígenes
+        chart_data = pd.DataFrame({
+            'Fecha': [d.strftime('%d/%m/%Y') for d in sorted_dates],
+            'Transcripciones': [len([f for f in filtered_files_by_date[d] if not (f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower())]) for d in sorted_dates],
+            'Spoti': [len([f for f in filtered_files_by_date[d] if f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()]) for d in sorted_dates]
+        })
+        st.bar_chart(chart_data.set_index('Fecha'), color=['#4ECDC4', '#FF6B6B'])
+    else:
+        # Gráfico simple si solo se muestra un origen
+        chart_data = pd.DataFrame({
+            'Fecha': [d.strftime('%d/%m/%Y') for d in sorted_dates],
+            'Número de archivos': [len(filtered_files_by_date[d]) for d in sorted_dates]
+        })
+        color = '#FF6B6B' if show_spoti else '#4ECDC4'
+        st.bar_chart(chart_data.set_index('Fecha'))
     
     # Mostrar detalles por fecha
     st.markdown("### 📅 Detalles por fecha")
@@ -899,14 +1358,65 @@ def display_calendar(files_by_date: dict):
                 break
         
         if selected_date_obj:
-            files_list = files_by_date[selected_date_obj]
+            files_list = filtered_files_by_date[selected_date_obj]
+            
+            # Separar por origen para mostrarlos agrupados
+            files_transcripciones = [f for f in files_list if not (f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower())]
+            files_spoti = [f for f in files_list if f.get('es_spoti', False) or 'spoti' in f.get('folder', '').lower()]
+            
             st.markdown(f"**Archivos del {selected_date}:**")
-            for file_info in files_list:
-                with st.expander(f"📄 {file_info['name']}"):
-                    # Mostrar preview del contenido
-                    content = file_info.get('content', '')
-                    preview = content[:500] + "..." if len(content) > 500 else content
-                    st.text(preview)
+            
+            if files_transcripciones:
+                st.markdown(f"<h4 style='color: #4ECDC4;'>📝 Transcripciones ({len(files_transcripciones)} archivos)</h4>", unsafe_allow_html=True)
+                for file_info in files_transcripciones:
+                    with st.expander(f"📄 {file_info['name']}", expanded=False):
+                        content = file_info.get('content', '')
+                        # Si no hay contenido (cargado desde caché), intentar cargarlo bajo demanda
+                        if not content and 'gh_url' in st.session_state:
+                            # Cargar contenido desde GitHub
+                            folder = file_info.get('folder', 'transcripciones')
+                            owner, repo = _parse_repo_url(st.session_state['gh_url'])
+                            if owner and repo:
+                                headers, _ = _get_github_headers()
+                                file_api = f"https://api.github.com/repos/{owner}/{repo}/contents/{folder}/{file_info['name']}"
+                                file_resp = requests.get(file_api, headers=headers)
+                                if file_resp.status_code == 200:
+                                    file_data = file_resp.json()
+                                    content_bytes = base64.b64decode(file_data.get("content", ""))
+                                    content = content_bytes.decode("utf-8", errors="ignore")
+                                    file_info['content'] = content  # Guardar en memoria
+                        
+                        preview = content[:500] + "..." if len(content) > 500 else content
+                        if preview:
+                            st.text(preview)
+                        else:
+                            st.info("Contenido no disponible")
+            
+            if files_spoti:
+                st.markdown(f"<h4 style='color: #FF6B6B;'>🎵 Spoti ({len(files_spoti)} archivos)</h4>", unsafe_allow_html=True)
+                for file_info in files_spoti:
+                    with st.expander(f"📄 {file_info['name']}", expanded=False):
+                        content = file_info.get('content', '')
+                        # Si no hay contenido (cargado desde caché), intentar cargarlo bajo demanda
+                        if not content and 'gh_url' in st.session_state:
+                            # Cargar contenido desde GitHub
+                            folder = file_info.get('folder', 'spoti')
+                            owner, repo = _parse_repo_url(st.session_state['gh_url'])
+                            if owner and repo:
+                                headers, _ = _get_github_headers()
+                                file_api = f"https://api.github.com/repos/{owner}/{repo}/contents/{folder}/{file_info['name']}"
+                                file_resp = requests.get(file_api, headers=headers)
+                                if file_resp.status_code == 200:
+                                    file_data = file_resp.json()
+                                    content_bytes = base64.b64decode(file_data.get("content", ""))
+                                    content = content_bytes.decode("utf-8", errors="ignore")
+                                    file_info['content'] = content  # Guardar en memoria
+                        
+                        preview = content[:500] + "..." if len(content) > 500 else content
+                        if preview:
+                            st.text(preview)
+                        else:
+                            st.info("Contenido no disponible")
 
 
 # --- Mostrar contexto ±4 líneas con bloque central resaltado ---
@@ -1080,36 +1590,84 @@ with repo_col:
 with path_col:
     custom_path = st.text_input("Ruta personalizada (opcional)", placeholder="ej: transcripciones, spoti, docs", help="Deja vacío para buscar en 'transcripciones' y 'spoti' automáticamente")
 
-# Carga automática al inicio si no hay datos
+# Guardar URL del repositorio en session_state para uso posterior
+if gh_url:
+    st.session_state['gh_url'] = gh_url
+
+# Carga automática al inicio si no hay datos (optimizada)
 if gh_url and 'trans_files' not in st.session_state:
-    with st.spinner("Cargando archivos .txt desde GitHub..."):
-        files, folder_used, error_msg = load_transcriptions_from_github(gh_url, custom_path.strip() if custom_path else "")
-        if files:
+    with st.spinner("Cargando transcripciones desde GitHub (optimizado)..."):
+        df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
+            gh_url, custom_path.strip() if custom_path else ""
+        )
+        if not df.empty:
             st.session_state['trans_files'] = files
-            st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-            st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(st.session_state['trans_df'])} bloques")
+            st.session_state['trans_df'] = df
+            if status == "cached":
+                st.success(f"⚡ Carga rápida desde caché: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+            elif status == "regenerated":
+                st.success(f"🔄 DataFrame regenerado: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+            elif status == "first_load":
+                st.success(f"📥 Primera carga: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+            else:
+                st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(df)} bloques")
         else:
             if error_msg:
                 st.error(f"❌ {error_msg}")
             else:
                 st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
 
-# Botón para recargar manualmente
-if st.button("🔄 Recargar archivos .txt desde GitHub", key="reload_transcriptions"):
-    if gh_url:
-        with st.spinner("Recargando archivos .txt desde GitHub..."):
-            files, folder_used, error_msg = load_transcriptions_from_github(gh_url, custom_path.strip() if custom_path else "")
-            if files:
-                st.session_state['trans_files'] = files
-                st.session_state['trans_df'] = build_transcriptions_dataframe(files)
-                st.success(f"Recargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(st.session_state['trans_df'])} bloques")
-            else:
-                if error_msg:
-                    st.error(f"❌ {error_msg}")
+# Botones para recargar
+button_col1, button_col2 = st.columns([2, 1])
+
+with button_col1:
+    if st.button("🔄 Recargar archivos .txt desde GitHub", key="reload_transcriptions"):
+        if gh_url:
+            st.session_state['gh_url'] = gh_url  # Guardar URL
+            with st.spinner("Recargando transcripciones desde GitHub (optimizado)..."):
+                df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
+                    gh_url, custom_path.strip() if custom_path else ""
+                )
+                if not df.empty:
+                    st.session_state['trans_files'] = files
+                    st.session_state['trans_df'] = df
+                    if status == "cached":
+                        st.success(f"⚡ Carga rápida desde caché: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                    elif status == "regenerated":
+                        st.success(f"🔄 DataFrame regenerado: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                    elif status == "first_load":
+                        st.success(f"📥 Primera carga: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                    else:
+                        st.success(f"Recargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(df)} bloques")
                 else:
-                    st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
-    else:
-        st.error("Por favor, ingresa una URL de repositorio GitHub válida")
+                    if error_msg:
+                        st.error(f"❌ {error_msg}")
+                    else:
+                        st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+        else:
+            st.error("Por favor, ingresa una URL de repositorio GitHub válida")
+
+with button_col2:
+    if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
+        if gh_url:
+            st.session_state['gh_url'] = gh_url  # Guardar URL
+            with st.spinner("🔄 Forzando regeneración completa del DataFrame (esto puede tardar varios minutos con 300+ archivos)..."):
+                df, files, folder_used, error_msg = force_regenerate_dataframe(
+                    gh_url, custom_path.strip() if custom_path else ""
+                )
+                if not df.empty:
+                    st.session_state['trans_files'] = files
+                    st.session_state['trans_df'] = df
+                    if error_msg:
+                        st.warning(f"{error_msg}")
+                    st.success(f"✅ DataFrame regenerado manualmente: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                else:
+                    if error_msg:
+                        st.error(f"❌ {error_msg}")
+                    else:
+                        st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+        else:
+            st.error("Por favor, ingresa una URL de repositorio GitHub válida")
 
 
 # --- UI: Search ---
@@ -1154,7 +1712,29 @@ if 'trans_files' in st.session_state and st.session_state['trans_files']:
     
     if files_by_date:
         st.info(f"📊 Se encontraron archivos en {len(files_by_date)} fechas diferentes")
-        display_calendar(files_by_date)
+        
+        # Filtros por origen
+        st.markdown("### 🔍 Filtros")
+        filter_col1, filter_col2 = st.columns(2)
+        with filter_col1:
+            show_transcripciones = st.checkbox(
+                "📝 Mostrar archivos de Transcripciones", 
+                value=True, 
+                key="filter_transcripciones",
+                help="Archivos de la carpeta 'transcripciones' de GitHub"
+            )
+        with filter_col2:
+            show_spoti = st.checkbox(
+                "🎵 Mostrar archivos de Spoti", 
+                value=True, 
+                key="filter_spoti",
+                help="Archivos de la carpeta 'spoti' de GitHub"
+            )
+        
+        if not show_transcripciones and not show_spoti:
+            st.warning("⚠️ Debes seleccionar al menos un origen para mostrar.")
+        else:
+            display_calendar(files_by_date, show_transcripciones, show_spoti)
     else:
         st.warning("⚠️ No se pudieron extraer fechas de los nombres de archivos. Verifica que sigan el formato DDMMYYYY (ej: 30012025 part1.txt)")
 else:
