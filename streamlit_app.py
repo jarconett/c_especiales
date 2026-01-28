@@ -406,11 +406,16 @@ def _save_dataframe_to_github(repo_url: str, df: pd.DataFrame, file_index: dict,
         return False, f"Error al guardar: {str(e)}"
 
 
+@st.cache_data(ttl=72000, show_spinner=False)  # Cachear por 20 horas (los cambios ocurren 1 vez al día)
 def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.DataFrame, dict, str]:
     """
     Carga el DataFrame y el índice desde GitHub.
     Retorna (DataFrame, file_index, mensaje_error)
     Si hay error, retorna (DataFrame vacío, {}, mensaje_error)
+    
+    NOTA: Esta función está cacheada con @st.cache_data para evitar descargar
+    el DataFrame (17MB) en cada ejecución del script.
+    El caché dura 20 horas ya que los cambios en transcripciones ocurren 1 vez al día.
     """
     owner, repo = _parse_repo_url(repo_url)
     if not owner or not repo:
@@ -1647,10 +1652,15 @@ with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False
         
         # Botón para limpiar caché
         if st.button("🗑️ Limpiar Caché", key="clear_cache"):
-            # Limpiar todos los cachés de GitHub
+            # Limpiar todos los cachés de GitHub en session_state
             keys_to_remove = [k for k in st.session_state.keys() if k.startswith("github_cache_")]
             for key in keys_to_remove:
                 del st.session_state[key]
+            # Limpiar también el caché del DataFrame de Streamlit
+            try:
+                _load_dataframe_from_github.clear()
+            except:
+                pass
             st.success("✅ Caché limpiado. Las próximas peticiones serán frescas.")
     else:
         st.warning("No se encontró GITHUB_TOKEN en los secrets ni en variables de entorno.")
@@ -1686,27 +1696,35 @@ if gh_url:
     st.session_state['gh_url'] = gh_url
 
 # Carga automática al inicio si no hay datos (optimizada)
-if gh_url and 'trans_files' not in st.session_state:
-    with st.spinner("Cargando transcripciones desde GitHub (optimizado)..."):
-        df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
-            gh_url, custom_path.strip() if custom_path else ""
-        )
-        if not df.empty:
-            st.session_state['trans_files'] = files
-            st.session_state['trans_df'] = df
-            if status == "cached":
-                st.success(f"⚡ Carga rápida desde caché: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
-            elif status == "regenerated":
-                st.success(f"🔄 DataFrame regenerado: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
-            elif status == "first_load":
-                st.success(f"📥 Primera carga: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+# Verificar tanto trans_files como trans_df para evitar cargas duplicadas
+if gh_url and ('trans_files' not in st.session_state or 'trans_df' not in st.session_state):
+    # Verificar si ya se está cargando para evitar ejecuciones múltiples
+    if 'loading_dataframe' not in st.session_state:
+        st.session_state['loading_dataframe'] = True
+        with st.spinner("Cargando transcripciones desde GitHub (optimizado)..."):
+            df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
+                gh_url, custom_path.strip() if custom_path else ""
+            )
+            if not df.empty:
+                st.session_state['trans_files'] = files
+                st.session_state['trans_df'] = df
+                st.session_state['dataframe_loaded'] = True
+                if status == "cached":
+                    st.success(f"⚡ Carga rápida desde caché: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                elif status == "regenerated":
+                    st.success(f"🔄 DataFrame regenerado: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                elif status == "first_load":
+                    st.success(f"📥 Primera carga: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                else:
+                    st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(df)} bloques")
             else:
-                st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(df)} bloques")
-        else:
-            if error_msg:
-                st.error(f"❌ {error_msg}")
-            else:
-                st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+                if error_msg:
+                    st.error(f"❌ {error_msg}")
+                else:
+                    st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+        # Limpiar la bandera después de cargar
+        if 'loading_dataframe' in st.session_state:
+            del st.session_state['loading_dataframe']
 
 # Botones para recargar
 button_col1, button_col2 = st.columns([2, 1])
@@ -1715,6 +1733,8 @@ with button_col1:
     if st.button("🔄 Recargar archivos .txt desde GitHub", key="reload_transcriptions"):
         if gh_url:
             st.session_state['gh_url'] = gh_url  # Guardar URL
+            # Limpiar caché de Streamlit para forzar recarga desde GitHub
+            _load_dataframe_from_github.clear()
             with st.spinner("Recargando transcripciones desde GitHub (optimizado)..."):
                 df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
                     gh_url, custom_path.strip() if custom_path else ""
@@ -1742,6 +1762,8 @@ with button_col2:
     if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
         if gh_url:
             st.session_state['gh_url'] = gh_url  # Guardar URL
+            # Limpiar caché de Streamlit antes de regenerar
+            _load_dataframe_from_github.clear()
             with st.spinner("🔄 Forzando regeneración completa del DataFrame (esto puede tardar varios minutos con 300+ archivos)..."):
                 df, files, folder_used, error_msg = force_regenerate_dataframe(
                     gh_url, custom_path.strip() if custom_path else ""
@@ -1749,6 +1771,8 @@ with button_col2:
                 if not df.empty:
                     st.session_state['trans_files'] = files
                     st.session_state['trans_df'] = df
+                    # Limpiar caché después de regenerar para que use el nuevo DataFrame
+                    _load_dataframe_from_github.clear()
                     if error_msg:
                         st.warning(f"{error_msg}")
                     st.success(f"✅ DataFrame regenerado manualmente: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
