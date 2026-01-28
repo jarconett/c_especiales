@@ -1614,9 +1614,289 @@
       "sha": "f5579e119435e5cb336615182ee3fdfc8f617f5f9e3aa478aeea80fea72819c9",
       "folder": "transcripciones",
       "size": 27488
+    },
+    "01092025.txt": {
+      "sha": "d016be1193a5854d617e5b85bf5d3c609daeb3ad18c38d450bde6783e56b0ca1",
+      "folder": "spoti",
+      "size": 87925
+    },
+    "01102025.txt": {
+      "sha": "3daef782aef4a33de8b78ddc4d8ceae3b9dbc398414bfaa781f58f25dec2540e",
+      "folder": "spoti",
+      "size": 96389
+    },
+    "02092025.txt": {
+      "sha": "2059bf0108d431c466af54037257703b287c7ea4345c8747366cbad237118578",
+      "folder": "spoti",
+      "size": 95615
+    },
+    "02102025.txt": {
+      "sha": "c81dbfec920303bfe6236669ccd20c8269443894c94567df10e7ca3e85f42da9",
+      "folder": "spoti",
+      "size": 77649
+    },
+    "03092025.txt": {
+      "sha": "8324159fd9303fbeb9dd7533d6caf5b312e2154b5c708afe5671baaa6b0909a0",
+      "folder": "spoti",
+      "size": 94423
+    },
+    "03102025.txt": {
+      "sha": "09896c77dc93cdf0da8142ef70e5e3e77aa211b19cfb3f696e80ed791e304f28",
+      "folder": "spoti",
+      "size": 92068
+    },
+    "04092025.txt": {
+      "sha": "11d0780c1de3f793df9a0b1421e0ba88b461e98d01c84302844751f9487f5d6d",
+      "folder": "spoti",
+      "size": 100684
+    },
+    "04112025.txt": {
+      "sha": "1e24b9543f7aa31b1a735e8094d6584e2334fbfe2dbbdb2767264384392145b7",
+      "folder": "spoti",
+      "size": 101849
+    },
+    "05092025.txt": {
+      "sha": "6ecc51d0f9c5f2d774a3bed6c0438718dc0144d7a99d5ee51309639bbc81ceeb",
+      "folder": "spoti",
+      "size": 89250
+    },
+    "05112025.txt": {
+      "sha": "2d5cf485e29f893a1c92c7262022ae25dd4e5ad0fb9191c7393b77ee20cf0025",
+      "folder": "spoti",
+      "size": 104683
+    },
+    "06102025.txt": {
+      "sha": "ae59c50eefbc07749f1b1673a614cf52fcfda638613c6af0f848b3f63ea0dca3",
+      "folder": "spoti",
+      "size": 90471
+    },
+    "06112025.txt": {
+      "sha": "94234e067cfbbc059dea7a763b36a81507a6387c3ef0d3d4529009067f690227",
+      "folder": "spoti",
+      "size": 104305
+    },
+    "07102025.txt": {
+      "sha": "2b7c2423fc35f2999eaa4a9e03b9e7a8497069a3f4345b7308e12721bfd7f1c9",
+      "folder": "spoti",
+      "size": 90620
+    },
+    "07112025.txt": {
+      "sha": "cf980c3230e7205546b37294fdb59e15792698e50e3f87350c0c5fa70c8e92fe",
+      "folder": "spoti",
+      "size": 101077
+    },
+    "08092025.txt": {
+      "sha": "2154f28d45ab98bcea24d8d2e0b01672bea060b1b520b97e35987482d5925ce6",
+      "folder": "spoti",
+      "size": 95478
+    },
+    "08102025.txt": {
+      "sha": "e4c36c5543fd0ca74d491a57d291e3b0ae7d3dc1f4383547f198e4a3cfe4e118",
+      "folder": "spoti",
+      "size": 90669
+    },
+    "09092025.txt": {
+      "sha": "edf2f91b29e93f2db63461c228023efc91eac4c91dd1a2eb7f51d4e47287c789",
+      "folder": "spoti",
+      "size": 99963
+    },
+    "09102025.txt": {
+      "sha": "69dea2d5ecb6baf0144385296bb31044a3c8cfb996fad79eb3db273ab1a1a822",
+      "folder": "spoti",
+      "size": 93547
+    },
+    "10092025.txt": {
+      "sha": "25c51dada63540325aa2bfa02c1752b79bf09a52976d920426bf563bed65ea50",
+      "folder": "spoti",
+      "size": 91156
+    },
+    "10102025.txt": {
+      "sha": "b29377a5d2e009fe37628062ceefcc101aeb50c96401730b4fabcc9146757220",
+      "folder": "spoti",
+      "size": 94436
+    },
+    "10112025.txt": {
+      "sha": "91a89d64acc80eb4e03a3ff186b330fc10c9c00361d2503a2b14e09ccaee6c30",
+      "folder": "spoti",
+      "size": 99667
+    },
+    "11092025.txt": {
+      "sha": "26c72112fa89212eabf7e0e485bdc9aaed4659b0d42e4eccb2dae1dae31e3dcc",
+      "folder": "spoti",
+      "size": 94729
+    },
+    "11112025.txt": {
+      "sha": "130b04d8fe7ea040a95a710ba8d154f55c789a77834cefe113a7b87d734e2a0e",
+      "folder": "spoti",
+      "size": 91801
+    },
+    "12092025.txt": {
+      "sha": "810db4fda34f30ee52866556a4238bf2abeedd8d2785c3e70d169ed7204ccfea",
+      "folder": "spoti",
+      "size": 91673
+    },
+    "12112025.txt": {
+      "sha": "1caa8b0821c0353871c8407d78df322cf88d0fbb9e95b3edbab92c9e19c527e0",
+      "folder": "spoti",
+      "size": 99649
+    },
+    "13102025.txt": {
+      "sha": "b37340a73c8d5c01cda34b97cb45cc734d74c9478318d0ce5c0f1c9dd2fbe671",
+      "folder": "spoti",
+      "size": 92181
+    },
+    "13112025.txt": {
+      "sha": "1896932ace6f8cb1727ffc08852e9c4791c60ad5874bb048dedba984ae3b3c23",
+      "folder": "spoti",
+      "size": 103856
+    },
+    "14102025.txt": {
+      "sha": "51288c56b71f49c9a5f05f5286ec8131a25a647b8801f144048045949af2b1b3",
+      "folder": "spoti",
+      "size": 97883
+    },
+    "14112025.txt": {
+      "sha": "f903def6350e069b54cd73265944bb5febb991b48544e35a5b73906d43870ab2",
+      "folder": "spoti",
+      "size": 93563
+    },
+    "15092025.txt": {
+      "sha": "1644da6556e9eb971b7ef6db20e28e9e334a567796dd1e50b426fa4bc58d44f3",
+      "folder": "spoti",
+      "size": 89144
+    },
+    "15102025.txt": {
+      "sha": "acf6f8cf7385219364c9c5f838849513ec021ec04a834c7a7eb4bace0b9b199a",
+      "folder": "spoti",
+      "size": 96916
+    },
+    "16092025.txt": {
+      "sha": "0070084d589b68d092fbeae8d869d0016cc93d96bedae8a0a7eb8fb29325056c",
+      "folder": "spoti",
+      "size": 91065
+    },
+    "16102025.txt": {
+      "sha": "050d1b6da04768609ac6c93d501be14c672f8e6a4d1fd9db719d3623960390c4",
+      "folder": "spoti",
+      "size": 74470
+    },
+    "17092025.txt": {
+      "sha": "d574c40a96c878f537dc8139c1dbec29c0a8a3f5b23af7ae2c89c684e5909dd0",
+      "folder": "spoti",
+      "size": 98232
+    },
+    "17102025.txt": {
+      "sha": "59afd6170f7a647f353e5a2a35f7295f3524b43925f2fbb9c70825ab54c5d542",
+      "folder": "spoti",
+      "size": 93272
+    },
+    "17112025.txt": {
+      "sha": "2247f4247e674cdd662c076b7ff72c0bcd67db705112fafa8b235879f53e63b6",
+      "folder": "spoti",
+      "size": 93013
+    },
+    "18092025.txt": {
+      "sha": "66f0eb757f4a29ba661baeca1674697458af3b49fddd7bbabe50ace5c1f6840c",
+      "folder": "spoti",
+      "size": 89444
+    },
+    "18112025.txt": {
+      "sha": "8603de2d8e4e692b8487a31acea0a2d9e4d8a237fa99e4ba58da500ff17e01cd",
+      "folder": "spoti",
+      "size": 98576
+    },
+    "19092025.txt": {
+      "sha": "66f0eb757f4a29ba661baeca1674697458af3b49fddd7bbabe50ace5c1f6840c",
+      "folder": "spoti",
+      "size": 89444
+    },
+    "20102025.txt": {
+      "sha": "dfda2433f7394ccc7afec1fe881aa84965559b50bef066eb926f4250e1879fbc",
+      "folder": "spoti",
+      "size": 95737
+    },
+    "21102025.txt": {
+      "sha": "56af92e61b0bd3a6065b45a40fcdb5530b0655d1ccb2f3327025dc0179ea6aab",
+      "folder": "spoti",
+      "size": 95928
+    },
+    "22092025.txt": {
+      "sha": "54999c1899f8c0a84ddbb31deeccde26dc26944ddd7238134cc7b0c014e0fe24",
+      "folder": "spoti",
+      "size": 85521
+    },
+    "22102025.txt": {
+      "sha": "4d55dede5017fc91f9f95e279f1a4c9511f746d873ed82f5c7c253c05109b5b5",
+      "folder": "spoti",
+      "size": 91187
+    },
+    "23092025.txt": {
+      "sha": "ba5135f50e4dff3d891cc696a92df85f05d978fa22f0dc7f6930c830915c745e",
+      "folder": "spoti",
+      "size": 87296
+    },
+    "23102025.txt": {
+      "sha": "d76e58b8c98292c4840a78075a9a162da9baa08b7b6b5e3293fd76415a3e8bb4",
+      "folder": "spoti",
+      "size": 68760
+    },
+    "24092025.txt": {
+      "sha": "e0b853a10804a0e443d572e9604cb87abf6cde555705a6eaec1a30f29d6f70ab",
+      "folder": "spoti",
+      "size": 94739
+    },
+    "24102025.txt": {
+      "sha": "6fc35ddf766fe92b8637712b5765ea4a3af2ec635c91637d728a9f79fcb4036a",
+      "folder": "spoti",
+      "size": 89582
+    },
+    "25092025.txt": {
+      "sha": "fd59250b25584cb77a3a0898afe15b1fabe3c97264b6dd5e34d3f1c98075d800",
+      "folder": "spoti",
+      "size": 91947
+    },
+    "26092025.txt": {
+      "sha": "fd59250b25584cb77a3a0898afe15b1fabe3c97264b6dd5e34d3f1c98075d800",
+      "folder": "spoti",
+      "size": 91947
+    },
+    "27102025.txt": {
+      "sha": "6fc35ddf766fe92b8637712b5765ea4a3af2ec635c91637d728a9f79fcb4036a",
+      "folder": "spoti",
+      "size": 89582
+    },
+    "28102025.txt": {
+      "sha": "3b5dcd5d1e2f7fd6fb39b2f0099a7d5521a4e6119a7c93b2f569c9e702948cfc",
+      "folder": "spoti",
+      "size": 95667
+    },
+    "29092025.txt": {
+      "sha": "a398dad6f0249071cae64cde3a75b0fe2604923d8fee3ecb3da0a988a31435e1",
+      "folder": "spoti",
+      "size": 91163
+    },
+    "29102025.txt": {
+      "sha": "d5190da212577752d9f9320a4b18a5119111b6564f4d125934d7f54cc4030a2d",
+      "folder": "spoti",
+      "size": 102955
+    },
+    "30092025.txt": {
+      "sha": "a398dad6f0249071cae64cde3a75b0fe2604923d8fee3ecb3da0a988a31435e1",
+      "folder": "spoti",
+      "size": 91163
+    },
+    "30102025.txt": {
+      "sha": "d5190da212577752d9f9320a4b18a5119111b6564f4d125934d7f54cc4030a2d",
+      "folder": "spoti",
+      "size": 102955
+    },
+    "31102025.txt": {
+      "sha": "d6ccc46b24d866fb2260e17fc688a27fc6b9abca1a19443327e0d66c04b7b4d7",
+      "folder": "spoti",
+      "size": 101412
     }
   },
-  "timestamp": "2026-01-28T01:59:46.813958+00:00",
-  "total_files": 323,
-  "df_rows": 71184
+  "timestamp": "2026-01-28T02:13:28.981394+00:00",
+  "total_files": 379,
+  "df_rows": 71240
 }
