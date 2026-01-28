@@ -1274,20 +1274,7 @@ def display_calendar(files_by_date: dict, show_transcripciones: bool = True, sho
     """, unsafe_allow_html=True)
     
     # Crear tabla HTML personalizada para mostrar archivos con colores
-    html_table = """
-    <table class="calendar-table">
-    <thead>
-    <tr>
-    <th>Fecha</th>
-    <th>Día</th>
-    <th>Total</th>
-    <th>Transcripciones</th>
-    <th>Spoti</th>
-    <th>Archivos</th>
-    </tr>
-    </thead>
-    <tbody>
-    """
+    html_table_rows = []
     
     for date_obj in sorted_dates:
         files_list = filtered_files_by_date[date_obj]
@@ -1311,23 +1298,30 @@ def display_calendar(files_by_date: dict, show_transcripciones: bool = True, sho
         
         # Escapar también el día de la semana por si acaso
         dia_semana_escaped = html.escape(dia_semana_es)
+        fecha_str = date_obj.strftime('%d/%m/%Y')
         
-        html_table += f"""
-        <tr>
-        <td>{date_obj.strftime('%d/%m/%Y')}</td>
-        <td>{dia_semana_escaped}</td>
-        <td><strong>{len(files_list)}</strong></td>
-        <td style="color: #4ECDC4; font-weight: bold;">{len(files_transcripciones) if show_transcripciones else 0}</td>
-        <td style="color: #FF6B6B; font-weight: bold;">{len(files_spoti) if show_spoti else 0}</td>
-        <td>{', '.join(file_names_html)}</td>
-        </tr>
-        """
+        html_table_rows.append(f'<tr><td>{fecha_str}</td><td>{dia_semana_escaped}</td><td><strong>{len(files_list)}</strong></td><td style="color: #4ECDC4; font-weight: bold;">{len(files_transcripciones) if show_transcripciones else 0}</td><td style="color: #FF6B6B; font-weight: bold;">{len(files_spoti) if show_spoti else 0}</td><td>{", ".join(file_names_html)}</td></tr>')
     
-    html_table += """
-    </tbody>
-    </table>
-    """
+    # Construir el HTML completo de forma más limpia
+    html_table_content = ''.join(html_table_rows)
     
+    # Construir el HTML completo sin saltos de línea innecesarios
+    html_table = (
+        '<div style="overflow-x: auto;">'
+        '<table class="calendar-table">'
+        '<thead>'
+        '<tr>'
+        '<th>Fecha</th><th>Día</th><th>Total</th><th>Transcripciones</th><th>Spoti</th><th>Archivos</th>'
+        '</tr>'
+        '</thead>'
+        '<tbody>'
+        f'{html_table_content}'
+        '</tbody>'
+        '</table>'
+        '</div>'
+    )
+    
+    # Renderizar el HTML - intentar con st.markdown primero
     st.markdown(html_table, unsafe_allow_html=True)
     
     # Mostrar gráfico de barras con colores diferentes
