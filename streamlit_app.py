@@ -1305,24 +1305,51 @@ def display_calendar(files_by_date: dict, show_transcripciones: bool = True, sho
     # Construir el HTML completo de forma más limpia
     html_table_content = ''.join(html_table_rows)
     
-    # Construir el HTML completo sin saltos de línea innecesarios
-    html_table = (
-        '<div style="overflow-x: auto;">'
-        '<table class="calendar-table">'
-        '<thead>'
-        '<tr>'
-        '<th>Fecha</th><th>Día</th><th>Total</th><th>Transcripciones</th><th>Spoti</th><th>Archivos</th>'
-        '</tr>'
-        '</thead>'
-        '<tbody>'
-        f'{html_table_content}'
-        '</tbody>'
-        '</table>'
-        '</div>'
-    )
+    # Construir el HTML completo con estilos CSS incluidos
+    html_table = f"""
+    <style>
+    .calendar-table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+        font-family: Arial, sans-serif;
+    }}
+    .calendar-table th {{
+        background-color: #4CAF50;
+        color: white;
+        padding: 8px;
+        text-align: left;
+        border: 1px solid #ddd;
+    }}
+    .calendar-table td {{
+        padding: 8px;
+        border: 1px solid #ddd;
+    }}
+    .calendar-table tr:nth-child(even) {{
+        background-color: #f9f9f9;
+    }}
+    </style>
+    <div style="overflow-x: auto;">
+    <table class="calendar-table">
+    <thead>
+    <tr>
+    <th>Fecha</th><th>Día</th><th>Total</th><th>Transcripciones</th><th>Spoti</th><th>Archivos</th>
+    </tr>
+    </thead>
+    <tbody>
+    {html_table_content}
+    </tbody>
+    </table>
+    </div>
+    """
     
-    # Renderizar el HTML - intentar con st.markdown primero
-    st.markdown(html_table, unsafe_allow_html=True)
+    # Usar st.components.v1.html() para renderizar HTML de forma más confiable
+    try:
+        import streamlit.components.v1 as components
+        components.html(html_table, height=600, scrolling=True)
+    except ImportError:
+        # Fallback a st.markdown si components no está disponible
+        st.markdown(html_table, unsafe_allow_html=True)
     
     # Mostrar gráfico de barras con colores diferentes
     st.markdown("### 📊 Gráfico de archivos por fecha")
