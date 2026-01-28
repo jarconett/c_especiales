@@ -811,8 +811,18 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
                 'sha': file_info.get('sha', '')
             })
         
-        # Determinar carpeta usada (preferir transcripciones si está disponible)
-        folder_used = "transcripciones" if any(f.get('folder', '').lower() == 'transcripciones' for f in files_light) else "spoti"
+        # Determinar carpeta usada (mostrar ambas si hay archivos de ambas)
+        has_transcripciones = any(f.get('folder', '').lower() == 'transcripciones' for f in files_light)
+        has_spoti = any(f.get('folder', '').lower() == 'spoti' for f in files_light)
+        
+        if has_transcripciones and has_spoti:
+            folder_used = "transcripciones y spoti"
+        elif has_transcripciones:
+            folder_used = "transcripciones"
+        elif has_spoti:
+            folder_used = "spoti"
+        else:
+            folder_used = "transcripciones"
         
         return df_cached, files_light, folder_used, "cached", ""
     
@@ -838,9 +848,13 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
 def load_transcriptions_from_github(repo_url: str, custom_path: str = "") -> tuple[List[dict], str, str]:
     """
     Intenta cargar archivos desde una ruta personalizada, 'transcripciones' o 'spoti'.
+    Si no se especifica ruta personalizada, carga archivos de AMBAS carpetas (transcripciones y spoti).
     Retorna (files, folder_used, error_message)
     """
-    # Si se especifica una ruta personalizada, intentar primero con esa
+    all_files = []
+    folders_found = []
+    
+    # Si se especifica una ruta personalizada, intentar solo con esa
     if custom_path:
         files, error_msg = read_txt_files_from_github(repo_url, path=custom_path)
         if files:
@@ -848,48 +862,58 @@ def load_transcriptions_from_github(repo_url: str, custom_path: str = "") -> tup
         elif error_msg and "404" not in error_msg:
             # Si hay un error real (no solo que no existe), retornarlo
             return [], "", error_msg
+        # Si no encuentra nada, continuar para intentar las carpetas por defecto
     
-    # Intentar primero en "transcripciones"
-    files, error_msg = read_txt_files_from_github(repo_url, path="transcripciones")
-    if files:
-        return files, "transcripciones", ""
-    elif error_msg and "404" not in error_msg:
-        # Si hay un error real, retornarlo
-        return [], "", error_msg
+    # Cargar archivos de "transcripciones"
+    files_trans, error_msg_trans = read_txt_files_from_github(repo_url, path="transcripciones")
+    if files_trans:
+        all_files.extend(files_trans)
+        folders_found.append("transcripciones")
+    elif error_msg_trans and "404" not in error_msg_trans:
+        # Si hay un error real, guardarlo pero continuar
+        pass
     
-    # Si no encuentra nada, intentar en "spoti"
-    files, error_msg = read_txt_files_from_github(repo_url, path="spoti")
-    if files:
-        return files, "spoti", ""
-    elif error_msg and "404" not in error_msg:
-        # Si hay un error real, retornarlo
-        return [], "", error_msg
+    # Cargar archivos de "spoti" (intentar también con mayúscula por si acaso)
+    for spoti_variant in ["spoti", "Spoti", "SPOTI"]:
+        files_spoti, error_msg_spoti = read_txt_files_from_github(repo_url, path=spoti_variant)
+        if files_spoti:
+            all_files.extend(files_spoti)
+            folders_found.append(spoti_variant.lower())  # Normalizar a minúsculas
+            break  # Si encuentra con una variante, no intentar las demás
+        elif error_msg_spoti and "404" not in error_msg_spoti:
+            # Si hay un error real, guardarlo pero continuar
+            pass
+    
+    # Si se encontraron archivos, retornarlos
+    if all_files:
+        folder_used = ", ".join(folders_found) if len(folders_found) > 1 else folders_found[0] if folders_found else "transcripciones"
+        return all_files, folder_used, ""
     
     # Si no encuentra nada en ninguna carpeta
     return [], "", "No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'."
 
 
-def parse_transcription_text(name: str, text: str) -> pd.DataFrame:
+def parse_transcription_text(name: str, text: str, folder: str = "") -> pd.DataFrame:
     pattern = re.compile(r"\[([^\]]+)\]\s*(.*?)((?=\[)|$)", re.S)
     rows = []
     for idx, m in enumerate(pattern.finditer(text)):
         speaker = m.group(1).strip()
         content = re.sub(r"\s+", " ", m.group(2).strip().replace('\r\n','\n')).strip()
-        rows.append({"file": name, "speaker": speaker, "text": content, "block_index": idx})
+        rows.append({"file": name, "speaker": speaker, "text": content, "block_index": idx, "folder": folder.lower()})
     if not rows:
         cleaned = re.sub(r"\s+"," ", text).strip()
-        rows.append({"file": name, "speaker": "UNKNOWN", "text": cleaned, "block_index": 0})
+        rows.append({"file": name, "speaker": "UNKNOWN", "text": cleaned, "block_index": 0, "folder": folder.lower()})
     return pd.DataFrame(rows)
 
 
 def build_transcriptions_dataframe(files: List[dict]) -> pd.DataFrame:
-    dfs = [parse_transcription_text(f['name'], f['content']) for f in files]
+    dfs = [parse_transcription_text(f['name'], f['content'], f.get('folder', '')) for f in files]
     if dfs:
         df = pd.concat(dfs, ignore_index=True)
         df["text_norm"] = df["text"].apply(normalize_text)  # 💥 normalizamos una vez
         return df
     else:
-        return pd.DataFrame(columns=["file","speaker","text","block_index"])
+        return pd.DataFrame(columns=["file","speaker","text","block_index","folder"])
 
 
 # --- Texto y búsqueda optimizados ---
@@ -911,63 +935,91 @@ def search_transcriptions(
     fuzzy_mode: str = "contextual",
     threshold: int = 86
 ) -> pd.DataFrame:
-    """Búsqueda flexible con texto normalizado en todos los modos."""
+    """
+    Búsqueda flexible con texto normalizado.
+    PRIORIDAD: Primero busca en archivos de 'transcripciones', si no encuentra nada, busca en 'spoti'.
+    """
     if df.empty or not query:
-        return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview"])
+        return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview", "folder"])
 
     # --- Normalizar texto y consulta una sola vez ---
     if "text_norm" not in df.columns:
         df = df.copy()
         df["text_norm"] = df["text"].apply(normalize_text)
+    
+    # Asegurar que existe la columna 'folder'
+    if "folder" not in df.columns:
+        df = df.copy()
+        df["folder"] = "transcripciones"  # Por defecto
+    
     query_norm = normalize_text(query)
 
-    results = pd.DataFrame()
+    # --- Separar DataFrame por carpeta ---
+    df_transcripciones = df[df["folder"].str.lower() == "transcripciones"].copy()
+    df_spoti = df[df["folder"].str.lower() == "spoti"].copy()
 
-    # --- Búsqueda exacta / regex sobre texto normalizado ---
-    if not use_regex:
-        # 1️⃣ Primero busca la frase completa
-        mask = df["text_norm"].str.contains(re.escape(query_norm), na=False)
-
-         # 2️⃣ Si no hay resultados, busca todas las palabras en cualquier orden
-        if not mask.any():
-            terms = [t for t in query_norm.split() if t]
-            if terms:
-                mask = df["text_norm"].apply(lambda t: all(term in t for term in terms))
-        results = df.loc[mask].copy()
-    else:
-        try:
-            mask = df["text_norm"].str.contains(query_norm, flags=re.IGNORECASE, regex=True, na=False)
-            results = df.loc[mask].copy()
-        except re.error:
-            st.error("Regex inválida")
+    # --- Función auxiliar para buscar en un DataFrame ---
+    def search_in_dataframe(df_subset: pd.DataFrame) -> pd.DataFrame:
+        if df_subset.empty:
             return pd.DataFrame()
+        
+        results = pd.DataFrame()
 
+        # --- Búsqueda exacta / regex sobre texto normalizado ---
+        if not use_regex:
+            # 1️⃣ Primero busca la frase completa
+            mask = df_subset["text_norm"].str.contains(re.escape(query_norm), na=False)
 
-    # --- Búsqueda fuzzy si no hay coincidencias exactas ---
-    if results.empty and fuzzy_mode != "ninguno":
-        st.info(f"🔍 Búsqueda fuzzy activada (modo: {fuzzy_mode}, umbral: {threshold}%)")
-        matched_rows = []
-        texts = df["text_norm"].tolist()
-        rows = df.to_dict("records")
+             # 2️⃣ Si no hay resultados, busca todas las palabras en cualquier orden
+            if not mask.any():
+                terms = [t for t in query_norm.split() if t]
+                if terms:
+                    mask = df_subset["text_norm"].apply(lambda t: all(term in t for term in terms))
+            results = df_subset.loc[mask].copy()
+        else:
+            try:
+                mask = df_subset["text_norm"].str.contains(query_norm, flags=re.IGNORECASE, regex=True, na=False)
+                results = df_subset.loc[mask].copy()
+            except re.error:
+                return pd.DataFrame()
 
-        if fuzzy_mode == "palabra":
-            query_terms = [t for t in query_norm.split() if t]
-            for text, row in zip(texts, rows):
-                for term in query_terms:
-                    score = fuzz.partial_ratio(term, text)
+        # --- Búsqueda fuzzy si no hay coincidencias exactas ---
+        if results.empty and fuzzy_mode != "ninguno":
+            matched_rows = []
+            texts = df_subset["text_norm"].tolist()
+            rows = df_subset.to_dict("records")
+
+            if fuzzy_mode == "palabra":
+                query_terms = [t for t in query_norm.split() if t]
+                for text, row in zip(texts, rows):
+                    for term in query_terms:
+                        score = fuzz.partial_ratio(term, text)
+                        if score >= threshold:
+                            matched_rows.append(row)
+                            break
+            elif fuzzy_mode == "contextual":
+                for text, row in zip(texts, rows):
+                    score = fuzz.partial_ratio(query_norm, text)
                     if score >= threshold:
                         matched_rows.append(row)
-                        break
-        elif fuzzy_mode == "contextual":
-            for text, row in zip(texts, rows):
-                score = fuzz.partial_ratio(query_norm, text)
-                if score >= threshold:
-                    matched_rows.append(row)
 
-        results = pd.DataFrame(matched_rows)
+            results = pd.DataFrame(matched_rows)
+        
+        return results
+
+    # --- 1️⃣ PRIMERO buscar en transcripciones ---
+    results = search_in_dataframe(df_transcripciones)
+    
+    # --- 2️⃣ Si no hay resultados en transcripciones, buscar en spoti ---
+    if results.empty and not df_spoti.empty:
+        if fuzzy_mode != "ninguno":
+            st.info(f"🔍 No se encontraron resultados en transcripciones. Buscando en spoti con modo fuzzy (umbral: {threshold}%)...")
+        else:
+            st.info("ℹ️ No se encontraron resultados en transcripciones. Buscando en spoti...")
+        results = search_in_dataframe(df_spoti)
 
     if results.empty:
-        return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview"])
+        return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview", "folder"])
 
     # --- Crear vista previa con resaltado ---
     def make_preview(text):
@@ -984,7 +1036,12 @@ def search_transcriptions(
         return highlight_matching_words(preview_text, query)
 
     results["match_preview"] = results["text"].apply(make_preview)
-    return results[["file", "speaker", "text", "block_index", "match_preview"]]
+    
+    # Asegurar que la columna folder esté presente
+    if "folder" not in results.columns:
+        results["folder"] = "transcripciones"
+    
+    return results[["file", "speaker", "text", "block_index", "match_preview", "folder"]]
     
 # --- Colorear oradores ---
 def color_speaker_row(row):
@@ -1759,12 +1816,32 @@ if 'trans_df' in st.session_state:
             res = res[res['speaker'] == speaker_filter]
 
         if res.empty:
-            st.warning("No se encontraron coincidencias.")
+            st.warning("No se encontraron coincidencias en transcripciones ni en spoti.")
         else:
-            st.success(f"Encontradas {len(res)} coincidencias")
+            # Contar resultados por carpeta
+            if 'folder' in res.columns:
+                res_trans = res[res['folder'].str.lower() == 'transcripciones'] if res['folder'].dtype == 'object' else pd.DataFrame()
+                res_spoti = res[res['folder'].str.lower() == 'spoti'] if res['folder'].dtype == 'object' else pd.DataFrame()
+            else:
+                res_trans = pd.DataFrame()
+                res_spoti = pd.DataFrame()
+            
+            if not res_trans.empty and not res_spoti.empty:
+                st.success(f"Encontradas {len(res)} coincidencias: {len(res_trans)} en transcripciones, {len(res_spoti)} en spoti")
+            elif not res_trans.empty:
+                st.success(f"Encontradas {len(res)} coincidencias en transcripciones")
+            elif not res_spoti.empty:
+                st.success(f"Encontradas {len(res)} coincidencias en spoti (no se encontraron en transcripciones)")
+            else:
+                st.success(f"Encontradas {len(res)} coincidencias")
+            
             display_results_table(res[['file', 'speaker', 'match_preview']])
             for i, row in res.iterrows():
-                with st.expander(f"{i+1}. {row['speaker']} — {row['file']} (bloque {row['block_index']})", expanded=False):
+                folder_info = ""
+                if 'folder' in row and pd.notna(row.get('folder')):
+                    folder_name = str(row['folder']).upper()
+                    folder_info = f" [{folder_name}]"
+                with st.expander(f"{i+1}. {row['speaker']} — {row['file']}{folder_info} (bloque {row['block_index']})", expanded=False):
                     show_context(df, row['file'], row['block_index'], query=query, context=4)
 
 st.markdown("---")
