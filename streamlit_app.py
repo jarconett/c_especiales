@@ -424,9 +424,9 @@ def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.D
         
         base_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
         
-        # Cargar índice primero
+        # Cargar índice primero con timeout
         index_file_url = f"{base_url}/transcripciones_index.json"
-        index_resp = requests.get(index_file_url, headers=headers)
+        index_resp = requests.get(index_file_url, headers=headers, timeout=30)
         
         if index_resp.status_code != 200:
             return pd.DataFrame(), {}, f"Índice no encontrado: {index_resp.status_code}"
@@ -435,9 +435,9 @@ def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.D
         index_data = json.loads(index_content)
         file_index = index_data.get('file_index', {})
         
-        # Cargar DataFrame
+        # Cargar DataFrame con timeout más largo para archivos grandes (17MB)
         df_file_url = f"{base_url}/transcripciones_df.pkl"
-        df_resp = requests.get(df_file_url, headers=headers)
+        df_resp = requests.get(df_file_url, headers=headers, timeout=60)
         
         if df_resp.status_code != 200:
             return pd.DataFrame(), {}, f"DataFrame no encontrado: {df_resp.status_code}"
@@ -462,7 +462,8 @@ def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str
     
     headers, token = _get_github_headers()
     api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    resp = requests.get(api_url, headers=headers)
+    # Agregar timeout para evitar que la petición tarde demasiado
+    resp = requests.get(api_url, headers=headers, timeout=10)
     
     if resp.status_code != 200:
         # Si la carpeta no existe (404), no hay cambios en esa carpeta
@@ -756,20 +757,45 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
         return df, files, folder_used, "first_load", ""
     
     # Hay DataFrame guardado, verificar si hay cambios en ambas carpetas
-    # Verificar carpeta "transcripciones"
-    has_changes_trans, new_index_trans = _detect_changes_in_github(repo_url, cached_index, "transcripciones")
-    # Verificar carpeta "spoti"
-    has_changes_spoti, new_index_spoti = _detect_changes_in_github(repo_url, cached_index, "spoti")
+    # OPTIMIZACIÓN: Hacer la detección de cambios rápida con timeouts cortos
+    # Si tarda más de 5 segundos total, asumir que no hay cambios para no bloquear
+    has_changes = False
+    new_file_index = {}
     
-    # Combinar índices de ambas carpetas
-    new_file_index = {**new_index_trans, **new_index_spoti}
-    has_changes = has_changes_trans or has_changes_spoti
+    # Verificar carpeta "transcripciones" con timeout corto
+    try:
+        has_changes_trans, new_index_trans = _detect_changes_in_github(repo_url, cached_index, "transcripciones")
+        new_file_index.update(new_index_trans)
+        has_changes = has_changes or has_changes_trans
+    except (requests.Timeout, requests.RequestException) as e:
+        # Si hay timeout o error de red, asumir que no hay cambios para no bloquear la carga
+        has_changes = False
+    except Exception as e:
+        # Si falla la detección, asumir que no hay cambios para no bloquear
+        has_changes = False
+    
+    # Verificar carpeta "spoti" con timeout corto
+    try:
+        has_changes_spoti, new_index_spoti = _detect_changes_in_github(repo_url, cached_index, "spoti")
+        new_file_index.update(new_index_spoti)
+        has_changes = has_changes or has_changes_spoti
+    except (requests.Timeout, requests.RequestException) as e:
+        # Si hay timeout o error de red, asumir que no hay cambios para no bloquear la carga
+        has_changes = False
+    except Exception as e:
+        # Si falla la detección, asumir que no hay cambios para no bloquear
+        has_changes = False
     
     # Si se especifica una ruta personalizada, verificar también esa
     if custom_path and custom_path not in ["transcripciones", "spoti"]:
-        has_changes_custom, new_index_custom = _detect_changes_in_github(repo_url, cached_index, custom_path)
-        new_file_index.update(new_index_custom)
-        has_changes = has_changes or has_changes_custom
+        try:
+            has_changes_custom, new_index_custom = _detect_changes_in_github(repo_url, cached_index, custom_path)
+            new_file_index.update(new_index_custom)
+            has_changes = has_changes or has_changes_custom
+        except (requests.Timeout, requests.RequestException) as e:
+            has_changes = False
+        except Exception as e:
+            has_changes = False
     
     if not has_changes:
         # No hay cambios, usar DataFrame pre-construido (RÁPIDO)
@@ -1324,9 +1350,19 @@ def display_calendar(files_by_date: dict, show_transcripciones: bool = True, sho
     .calendar-table td {{
         padding: 8px;
         border: 1px solid #ddd;
+        color: #333;
+        background-color: #ffffff;
     }}
-    .calendar-table tr:nth-child(even) {{
+    .calendar-table tbody tr:nth-child(even) {{
         background-color: #f9f9f9;
+    }}
+    .calendar-table tbody tr:nth-child(even) td {{
+        background-color: #f9f9f9;
+        color: #333;
+    }}
+    .calendar-table tbody tr:nth-child(odd) td {{
+        background-color: #ffffff;
+        color: #333;
     }}
     </style>
     <div style="overflow-x: auto;">
