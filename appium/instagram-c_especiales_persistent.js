@@ -1,6 +1,7 @@
 const { remote } = require('webdriverio');
 const readlineSync = require('readline-sync');
 const { execSync } = require('child_process');
+const https = require('https');
 
 // Almacenar drivers para cada dispositivo
 const deviceDrivers = new Map(); // Map<udid, driver>
@@ -381,153 +382,6 @@ async function isSessionActive(driver) {
     }
 }
 
-// Buscar story con pregunta refrescando el perfil
-async function findStoryWithQuestion(udid, driver) {
-    try {
-        console.log(`  🔄 Refrescando perfil en ${udid} para buscar story con pregunta...`);
-        
-        // Asegurarse de estar en el perfil
-        const profileCheck = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 1000);
-        if (!profileCheck) {
-            // Navegar al perfil si no estamos ahí
-            const searchButton = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/search_tab"]', 1000);
-            if (searchButton) {
-                await searchButton.click();
-                await driver.pause(200);
-            }
-            
-            const searchInput = await waitForElementMaxSpeed(driver, '//android.widget.EditText', 500);
-            if (searchInput) {
-                await searchInput.click();
-                await searchInput.setValue('cuerposespeciales');
-                await driver.pause(500);
-            }
-            
-            const profileResults = await driver.$$('//android.widget.TextView[@text="cuerposespeciales"]');
-            if (profileResults.length >= 2) {
-                await profileResults[1].click();
-            } else if (profileResults.length === 1) {
-                await profileResults[0].click();
-            }
-            await driver.pause(500);
-        }
-        
-        // Obtener dimensiones de pantalla para el swipe
-        const windowSize = await driver.getWindowSize();
-        const centerX = Math.floor(windowSize.width / 2);
-        const startY = Math.floor(windowSize.height * 0.3); // 30% desde arriba
-        const endY = Math.floor(windowSize.height * 0.7); // 70% desde arriba
-        
-        const maxRefreshAttempts = 60; // Máximo 60 segundos (60 swipes de 1 segundo)
-        let refreshCount = 0;
-        
-        while (refreshCount < maxRefreshAttempts) {
-            // Hacer swipe down para refrescar
-            await driver.performActions([{
-                type: 'pointer',
-                id: 'finger1',
-                parameters: { pointerType: 'touch' },
-                actions: [
-                    { type: 'pointerMove', x: centerX, y: startY, duration: 0 },
-                    { type: 'pointerDown', button: 0 },
-                    { type: 'pause', duration: 100 },
-                    { type: 'pointerMove', x: centerX, y: endY, duration: 300 },
-                    { type: 'pointerUp', button: 0 }
-                ]
-            }]);
-            
-            await driver.pause(1000); // Esperar 1 segundo entre swipes
-            
-            refreshCount++;
-            
-            // Verificar si hay un story disponible
-            const storyElement = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 200);
-            if (!storyElement) {
-                continue; // No hay story, continuar refrescando
-            }
-            
-            // Abrir el story para verificar si tiene pregunta
-            try {
-                await storyElement.click();
-                await driver.pause(800); // Esperar a que se abra el viewer
-                
-                // Buscar elementos con signo de interrogación (pregunta)
-                const questionElements = await driver.$$('//*[contains(@text, "?")] | //*[contains(@content-desc, "?")]');
-                
-                if (questionElements.length > 0) {
-                    // Hay una pregunta, hacer clic en ella
-                    await questionElements[0].click();
-                    await driver.pause(200);
-                    console.log(`  ✅ Story con pregunta encontrado en ${udid} después de ${refreshCount} refrescos`);
-                    return true; // Encontrado, salir
-                } else {
-                    // No hay pregunta, cerrar el viewer y continuar refrescando
-                    await driver.pressKeyCode(4); // KEYCODE_BACK
-                    await driver.pause(300);
-                }
-            } catch (e) {
-                // Si hay error al abrir el story, continuar refrescando
-                try {
-                    await driver.pressKeyCode(4); // Intentar cerrar por si acaso
-                    await driver.pause(300);
-                } catch (e2) {
-                    // Ignorar
-                }
-            }
-            
-            // Verificar que seguimos en el perfil
-            const stillInProfile = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 200);
-            if (!stillInProfile) {
-                // Si salimos del perfil, volver
-                const searchButton = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/search_tab"]', 500);
-                if (searchButton) {
-                    await searchButton.click();
-                    await driver.pause(200);
-                }
-                
-                const searchInput = await waitForElementMaxSpeed(driver, '//android.widget.EditText', 500);
-                if (searchInput) {
-                    await searchInput.click();
-                    await searchInput.setValue('cuerposespeciales');
-                    await driver.pause(500);
-                }
-                
-                const profileResults = await driver.$$('//android.widget.TextView[@text="cuerposespeciales"]');
-                if (profileResults.length >= 2) {
-                    await profileResults[1].click();
-                } else if (profileResults.length === 1) {
-                    await profileResults[0].click();
-                }
-                await driver.pause(500);
-            }
-        }
-        
-        // Si llegamos aquí, no se encontró story con pregunta después de todos los intentos
-        console.log(`  ⚠️  No se encontró story con pregunta en ${udid} después de ${refreshCount} refrescos`);
-        // Intentar abrir el story de todas formas
-        const storyElement = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 500);
-        if (storyElement) {
-            await storyElement.click();
-            await driver.pause(800);
-        }
-        return false;
-        
-    } catch (error) {
-        console.error(`  ❌ Error buscando story con pregunta en ${udid}: ${error.message}`);
-        // Intentar abrir el story de todas formas
-        try {
-            const storyElement = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 500);
-            if (storyElement) {
-                await storyElement.click();
-                await driver.pause(800);
-            }
-        } catch (e) {
-            // Ignorar
-        }
-        return false;
-    }
-}
-
 // Ejecutar automatización en un dispositivo específico
 async function executeStoryAutomationOnDevice(udid, driver, userResponse) {
     const startTime = Date.now();
@@ -537,12 +391,24 @@ async function executeStoryAutomationOnDevice(udid, driver, userResponse) {
         if (!isActive) {
             throw new Error('Sesión cerrada, necesita reconexión');
         }
+        // ABRIR STORY
+        const storyElement = await waitForElementMaxSpeed(driver, '//*[@resource-id="com.instagram.android:id/row_profile_header_imageview"]', 100);
+        if (storyElement) {
+            await storyElement.click();
+        }
+
+        await driver.pause(100); // Reducido de 200 a 100
         
-        // PRIMERO: Refrescar perfil y buscar story con pregunta
-        await findStoryWithQuestion(udid, driver);
-        
-        // El story ya debería estar abierto con la pregunta, continuar con el flujo normal
-        await driver.pause(100);
+        // Hacer clic en la pregunta (búsqueda optimizada)
+        try {
+            const questionElements = await driver.$$('//*[contains(@text, "?")] | //*[contains(@content-desc, "?")]');
+            if (questionElements.length > 0) {
+                await questionElements[0].click();
+                await driver.pause(50); // Reducido de 100 a 50
+            }
+        } catch (e) {
+            // Continuar
+        }
         
         // BUSCAR CAMPO DE TEXTO (optimizado)
         let inputField = null;
@@ -1095,6 +961,198 @@ async function executeStoryAutomationParallel(userResponse) {
     return results.every(r => r.success);
 }
 
+// Función para obtener el HTML de una URL
+function fetchHTML(url) {
+    return new Promise((resolve, reject) => {
+        const urlObj = new URL(url);
+        const options = {
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+            }
+        };
+        
+        const req = https.get(options, (res) => {
+            // Manejar redirects
+            if (res.statusCode === 301 || res.statusCode === 302) {
+                const redirectUrl = res.headers.location;
+                if (redirectUrl) {
+                    return fetchHTML(redirectUrl.startsWith('http') ? redirectUrl : urlObj.origin + redirectUrl)
+                        .then(resolve)
+                        .catch(reject);
+                }
+            }
+            
+            if (res.statusCode !== 200) {
+                reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+                return;
+            }
+            
+            let data = '';
+            
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            
+            res.on('end', () => {
+                resolve(data);
+            });
+        });
+        
+        req.on('error', (err) => {
+            reject(err);
+        });
+        
+        req.setTimeout(10000, () => {
+            req.destroy();
+            reject(new Error('Timeout al obtener la página'));
+        });
+    });
+}
+
+// Función para obtener el resumen del último programa de iVoox
+async function getLatestProgramSummary() {
+    try {
+        const podcastUrl = 'https://www.ivoox.com/podcast-cuerpos-especiales_sq_f11345962_1.html';
+        console.log('📡 Obteniendo información del último programa...');
+        
+        // Obtener HTML de la página principal del podcast
+        const html = await fetchHTML(podcastUrl);
+        
+        // Buscar el enlace del último programa
+        // Buscar todos los enlaces que contengan "cuerpos-especiales-" en la URL
+        const linkPattern = /href="(https:\/\/www\.ivoox\.com\/cuerpos-especiales-[^"]+)"/gi;
+        
+        // También buscar variantes sin https://
+        const linkPattern2 = /href="(\/cuerpos-especiales-[^"]+)"/gi;
+        
+        let lastProgramUrl = null;
+        let match;
+        const matches = [];
+        
+        // Recopilar todos los enlaces que coincidan
+        while ((match = linkPattern.exec(html)) !== null) {
+            matches.push(match[1]);
+        }
+        
+        // Buscar también enlaces relativos
+        while ((match = linkPattern2.exec(html)) !== null) {
+            matches.push('https://www.ivoox.com' + match[1]);
+        }
+        
+        // El primer enlace encontrado debería ser el más reciente
+        if (matches.length > 0) {
+            lastProgramUrl = matches[0];
+        }
+        
+        // Si no encontramos, intentar buscar por el texto del enlace
+        if (!lastProgramUrl) {
+            // Buscar el texto "Cuerpos especiales |" en el HTML
+            const textPattern = /Cuerpos especiales \|/i;
+            const textIndex = html.search(textPattern);
+            
+            if (textIndex !== -1) {
+                // Buscar enlaces cerca del texto (500 caracteres antes y después)
+                const searchStart = Math.max(0, textIndex - 500);
+                const searchEnd = Math.min(html.length, textIndex + 500);
+                const searchArea = html.substring(searchStart, searchEnd);
+                
+                // Buscar href en el área de búsqueda
+                const hrefMatch = searchArea.match(/href=["']([^"']*cuerpos-especiales-[^"']+)["']/i);
+                if (hrefMatch) {
+                    let foundUrl = hrefMatch[1];
+                    // Si es relativo, agregar el dominio
+                    if (foundUrl.startsWith('/')) {
+                        foundUrl = 'https://www.ivoox.com' + foundUrl;
+                    }
+                    lastProgramUrl = foundUrl;
+                }
+            }
+        }
+        
+        // Último intento: buscar cualquier enlace que contenga "cuerpos-especiales" sin restricciones estrictas
+        if (!lastProgramUrl) {
+            const flexiblePattern = /href=["']([^"']*cuerpos-especiales[^"']*)["']/i;
+            const flexibleMatch = html.match(flexiblePattern);
+            if (flexibleMatch) {
+                let foundUrl = flexibleMatch[1];
+                if (foundUrl.startsWith('/')) {
+                    foundUrl = 'https://www.ivoox.com' + foundUrl;
+                } else if (!foundUrl.startsWith('http')) {
+                    foundUrl = 'https://www.ivoox.com/' + foundUrl;
+                }
+                lastProgramUrl = foundUrl;
+            }
+        }
+        
+        if (!lastProgramUrl) {
+            console.log('⚠️  No se pudo encontrar el enlace del último programa');
+            return null;
+        }
+        
+        console.log(`🔗 Encontrado programa: ${lastProgramUrl}`);
+        
+        // Obtener HTML de la página del programa
+        const programHtml = await fetchHTML(lastProgramUrl);
+        
+        // Buscar la descripción que comienza con "Descripción de Cuerpos especiales |"
+        // y termina cuando empieza "Comentarios de Cuerpos especiales |"
+        const descStartPattern = /Descripción de Cuerpos especiales \|/i;
+        const descEndPattern = /Comentarios de Cuerpos especiales \|/i;
+        
+        const startIndex = programHtml.search(descStartPattern);
+        const endIndex = programHtml.search(descEndPattern);
+        
+        if (startIndex === -1) {
+            console.log('⚠️  No se encontró la descripción del programa');
+            return null;
+        }
+        
+        // Extraer la descripción (hasta 3000 caracteres o hasta encontrar "Comentarios")
+        const extractEnd = endIndex !== -1 ? endIndex : Math.min(startIndex + 3000, programHtml.length);
+        let description = programHtml.substring(startIndex, extractEnd);
+        
+        // Limpiar HTML tags
+        description = description.replace(/<[^>]*>/g, '');
+        
+        // Decodificar entidades HTML comunes
+        description = description.replace(/&nbsp;/g, ' ')
+                                 .replace(/&amp;/g, '&')
+                                 .replace(/&lt;/g, '<')
+                                 .replace(/&gt;/g, '>')
+                                 .replace(/&quot;/g, '"')
+                                 .replace(/&#39;/g, "'")
+                                 .replace(/&apos;/g, "'")
+                                 .replace(/&mdash;/g, '—')
+                                 .replace(/&ndash;/g, '–');
+        
+        // Decodificar entidades numéricas
+        description = description.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
+        description = description.replace(/&#x([0-9a-fA-F]+);/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+        
+        // Limpiar espacios múltiples y saltos de línea
+        description = description.replace(/\s+/g, ' ').trim();
+        
+        // Remover el prefijo "Descripción de Cuerpos especiales |" si está al inicio
+        description = description.replace(/^Descripción de Cuerpos especiales \|/i, '').trim();
+        
+        // Limitar la longitud si es muy larga (1500 caracteres para mostrar más información)
+        if (description.length > 1500) {
+            description = description.substring(0, 1500) + '...';
+        }
+        
+        return description;
+        
+    } catch (error) {
+        console.error('⚠️  Error al obtener el resumen del programa:', error.message);
+        return null;
+    }
+}
+
 async function main() {
     try {
         // Inicializar todas las conexiones
@@ -1118,7 +1176,19 @@ async function main() {
         // Loop principal
         while (true) {
             try {
-                const userResponse = readlineSync.question('📝 Ingresa tu respuesta (o "salir" para terminar): ');
+                // Obtener y mostrar el resumen del último programa
+                const programSummary = await getLatestProgramSummary();
+                if (programSummary) {
+                    console.log('\n📻 RESUMEN DEL ÚLTIMO PROGRAMA:');
+                    console.log('─'.repeat(80));
+                    console.log(programSummary);
+                    console.log('─'.repeat(80));
+                    console.log('');
+                } else {
+                    console.log('⚠️  No se pudo obtener el resumen del programa, continuando...\n');
+                }
+                
+                const userResponse = readlineSync.question('Introduce tu respuesta (o "salir" para terminar): ');
                 
                 if (userResponse.toLowerCase() === 'salir') {
                     console.log('👋 Cerrando sesiones...');
