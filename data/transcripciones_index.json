@@ -40,6 +40,26 @@
       "folder": "transcripciones",
       "size": 8846
     },
+    "02022026 part1.txt": {
+      "sha": "1a5712bcf4515f6afcedfb0a20caf6352695892043d8483560e13def69a468a5",
+      "folder": "transcripciones",
+      "size": 34266
+    },
+    "02022026 part2.txt": {
+      "sha": "dcd563ecf3b65ac5fa849fca1f61783f78e03fd8ce38bee37b5935477e3ada47",
+      "folder": "transcripciones",
+      "size": 31750
+    },
+    "02022026 part3.txt": {
+      "sha": "56d4e26017a36c1ed7e7c9b53a1cb1d4850a1d6cd214a1c191b0a28ab1dc2866",
+      "folder": "transcripciones",
+      "size": 30174
+    },
+    "02022026 part4.txt": {
+      "sha": "571fbd859287807267797ebdd0d4e52840464b797261759d907b2dfc67357939",
+      "folder": "transcripciones",
+      "size": 19344
+    },
     "02092025 part1.txt": {
       "sha": "f1609c208d81c3d2aacebb4ee91960a64fd14e7b870fdbbe0a68ae969bf7eae9",
       "folder": "transcripciones",
@@ -1600,6 +1620,26 @@
       "folder": "transcripciones",
       "size": 36900
     },
+    "30012026 part1.txt": {
+      "sha": "b1fee6300e0c1ea149c1acc273cd563c7e671871c27ea3c9e4a6b49e054556f3",
+      "folder": "transcripciones",
+      "size": 31178
+    },
+    "30012026 part2.txt": {
+      "sha": "61f7516a61699a6dc87e55cfa9235fe5b9a6ca769c3eec39ecf336c04c5b1519",
+      "folder": "transcripciones",
+      "size": 34692
+    },
+    "30012026 part3.txt": {
+      "sha": "25b812b6b52f8afb2131f49de038087c825320d7af7e2d1048d679f83c3b3aec",
+      "folder": "transcripciones",
+      "size": 36802
+    },
+    "30012026 part4.txt": {
+      "sha": "6d78481555db7afe374f5bdb2e5037490e697eb81f311dc4b72a207ba84d9f39",
+      "folder": "transcripciones",
+      "size": 12797
+    },
     "30092025 part1 (mp3cut.net).txt": {
       "sha": "7fcb7ffbdd8166aea359dfd271ebd772e544ccd70e2e26232e48818dcf79c4d6",
       "folder": "transcripciones",
@@ -1931,7 +1971,7 @@
       "size": 101412
     }
   },
-  "timestamp": "2026-02-02T15:41:12.902958+00:00",
-  "total_files": 386,
-  "df_rows": 72873
+  "timestamp": "2026-02-03T07:31:20.999751+00:00",
+  "total_files": 394,
+  "df_rows": 74494
 }
