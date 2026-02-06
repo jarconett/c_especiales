@@ -125,6 +125,11 @@
       "folder": "transcripciones",
       "size": 36098
     },
+    "03022026 part4.txt": {
+      "sha": "eda1588bfa434850dbc794cc7e00f5dcec4bb1fad4a6181673bae590b9842920",
+      "folder": "transcripciones",
+      "size": 13257
+    },
     "03092025 part1.txt": {
       "sha": "876c9b1f7d66d82eb5a58055cfa081ee0cef45be8aeeb62eece7f4f0613dda96",
       "folder": "transcripciones",
@@ -274,6 +279,26 @@
       "sha": "3e15f90a2d3f06d02f1f03fcc76e564da7992d1165266f01acdf0e6f865f5b90",
       "folder": "transcripciones",
       "size": 35106
+    },
+    "05022026 part1.txt": {
+      "sha": "495227e508cb69708fda3ac823964ee2e0ff15b675f33decac8ed950aa1f08ad",
+      "folder": "transcripciones",
+      "size": 32910
+    },
+    "05022026 part2.txt": {
+      "sha": "b111c89aae8a644f1142a833fb16d24a389097cfabf6837c0aad63698af4f1b9",
+      "folder": "transcripciones",
+      "size": 31561
+    },
+    "05022026 part3.txt": {
+      "sha": "fb2320af32bf79d79f127214598ea96fd3a2e550e1e38ff0362aa6f952b88d72",
+      "folder": "transcripciones",
+      "size": 36369
+    },
+    "05022026 part4.txt": {
+      "sha": "55f2a62fe02f43c8dd4fc8ed0ab5f44ae49b09ef5df3ecbd8f279fce6bca6af2",
+      "folder": "transcripciones",
+      "size": 7429
     },
     "05092025part1.txt": {
       "sha": "4b21c2ce3700eb3b3699d0077a4264fb1c8345677ccbbf44429e3884338b795b",
@@ -1640,6 +1665,11 @@
       "folder": "transcripciones",
       "size": 36620
     },
+    "29012026 part4(1).txt": {
+      "sha": "5e177f4a3624070f94d0999fea82cff6e0d3f637d3cab4fd0e7b03641df6ef92",
+      "folder": "transcripciones",
+      "size": 11404
+    },
     "29092025 part1.txt": {
       "sha": "8d2aa06216787b08ba783a8447db2ceeff5f043af94055e98f88c496738c74d7",
       "folder": "transcripciones",
@@ -2026,7 +2056,7 @@
       "size": 101412
     }
   },
-  "timestamp": "2026-02-05T08:49:54.964066+00:00",
-  "total_files": 405,
-  "df_rows": 77052
+  "timestamp": "2026-02-06T13:46:43.947493+00:00",
+  "total_files": 411,
+  "df_rows": 77993
 }
