@@ -355,6 +355,26 @@
       "folder": "transcripciones",
       "size": 34816
     },
+    "06022026 part1.txt": {
+      "sha": "adf2d6a96f6f7b5d65602c4a3218d6b954a55aba324fb6a8299d00b0f427dba8",
+      "folder": "transcripciones",
+      "size": 31169
+    },
+    "06022026 part2.txt": {
+      "sha": "5e844c205e493eaf93eb1912c2266b1d39e023212de475b9ec16e6bcc294edef",
+      "folder": "transcripciones",
+      "size": 31145
+    },
+    "06022026 part3.txt": {
+      "sha": "16fa50700f1f39832b9b51fa454a83600c181f18a50b91f3a7a11e049df724dc",
+      "folder": "transcripciones",
+      "size": 30434
+    },
+    "06022026 part4.txt": {
+      "sha": "a0d15d4a3493330e2d334e9ab5f3395086896b9c656f320c0b3a75d8ebd9f700",
+      "folder": "transcripciones",
+      "size": 8732
+    },
     "06102025 part1.txt": {
       "sha": "651df0c9cafb7a3c872e962ab051c54a49064e6d913d9426b6c236988f6573c8",
       "folder": "transcripciones",
@@ -2056,7 +2076,7 @@
       "size": 101412
     }
   },
-  "timestamp": "2026-02-06T15:15:04.663134+00:00",
-  "total_files": 411,
-  "df_rows": 77993
+  "timestamp": "2026-02-09T16:18:40.697302+00:00",
+  "total_files": 415,
+  "df_rows": 78665
 }
