@@ -1,5 +1,5 @@
 import streamlit as st
-from moviepy.editor import AudioFileClip
+# moviepy se importa de forma lazy dentro de split_audio para evitar problemas con pkg_resources en Python 3.13
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
 from typing import List
 from rapidfuzz import fuzz
@@ -216,6 +216,15 @@ FFMPEG_BIN = r"C:\Users\Javier\Downloads\ffmpeg.exe"
 os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_BIN
 
 def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
+    # Importación lazy de moviepy para evitar problemas con pkg_resources en Python 3.13
+    try:
+        from moviepy.editor import AudioFileClip
+    except ImportError as e:
+        raise ImportError(
+            f"Error al importar moviepy. Asegúrate de que está instalado: pip install moviepy\n"
+            f"Error original: {str(e)}"
+        )
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
         tmpfile.write(audio_bytes)
         tmp_path = tmpfile.name
@@ -1621,9 +1630,17 @@ with col1:
     if uploaded and st.button("Procesar audio y generar fragmentos"):
         audio_bytes = uploaded.read()
         with st.spinner("Cortando audio..."):
-            segments = split_audio(audio_bytes, uploaded.name, segment_seconds=int(segment_minutes*60))
-            st.session_state['audio_segments'] = segments
-            st.success(f"Generados {len(segments)} fragmentos")
+            try:
+                segments = split_audio(audio_bytes, uploaded.name, segment_seconds=int(segment_minutes*60))
+                st.session_state['audio_segments'] = segments
+                st.success(f"Generados {len(segments)} fragmentos")
+            except ImportError as e:
+                st.error(f"❌ Error de importación: {str(e)}\n\n"
+                         f"💡 **Solución:** Agrega `setuptools` a tus dependencias:\n"
+                         f"```bash\npip install setuptools\n```\n"
+                         f"O en Streamlit Cloud, agrega `setuptools` a tu archivo `requirements.txt`")
+            except Exception as e:
+                st.error(f"❌ Error al procesar el audio: {str(e)}")
     if 'audio_segments' in st.session_state:
         st.markdown("### Descargar fragmentos")
         for seg in st.session_state['audio_segments']:
