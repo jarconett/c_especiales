@@ -216,54 +216,57 @@ FFMPEG_BIN = os.environ.get("FFMPEG_BIN", r"C:\Users\Javier\Downloads\ffmpeg.exe
 
 def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
     """Divide el audio en fragmentos usando pydub (sin dependencia de moviepy ni pkg_resources)."""
-    try:
-        from pydub import AudioSegment
-    except ImportError:
-        raise ImportError(
-            "Se necesita pydub. Instálalo con: pip install pydub\n"
-            "En Streamlit Cloud debe estar en requirements.txt."
-        )
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        try:
+            from pydub import AudioSegment
+        except ImportError:
+            raise ImportError(
+                "Se necesita pydub. Instálalo con: pip install pydub\n"
+                "En Streamlit Cloud debe estar en requirements.txt."
+            )
 
-    # Usar ffmpeg personalizado si está definido (p. ej. Windows local)
-    if FFMPEG_BIN and os.path.isfile(FFMPEG_BIN):
-        AudioSegment.converter = FFMPEG_BIN
-        AudioSegment.ffmpeg = FFMPEG_BIN
-        AudioSegment.ffprobe = FFMPEG_BIN.replace("ffmpeg", "ffprobe") if "ffmpeg" in FFMPEG_BIN else FFMPEG_BIN
+        # Usar ffmpeg personalizado si está definido (p. ej. Windows local)
+        if FFMPEG_BIN and os.path.isfile(FFMPEG_BIN):
+            AudioSegment.converter = FFMPEG_BIN
+            AudioSegment.ffmpeg = FFMPEG_BIN
+            AudioSegment.ffprobe = FFMPEG_BIN.replace("ffmpeg", "ffprobe") if "ffmpeg" in FFMPEG_BIN else FFMPEG_BIN
 
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "m4a"
-    if ext not in ("m4a", "mp3", "wav", "ogg", "flac", "webm"):
-        ext = "m4a"
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "m4a"
+        if ext not in ("m4a", "mp3", "wav", "ogg", "flac", "webm"):
+            ext = "m4a"
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmpfile:
-        tmpfile.write(audio_bytes)
-        tmp_path = tmpfile.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmpfile:
+            tmpfile.write(audio_bytes)
+            tmp_path = tmpfile.name
 
-    try:
-        audio = AudioSegment.from_file(tmp_path, format=ext)
-    except Exception as e:
+        try:
+            audio = AudioSegment.from_file(tmp_path, format=ext)
+        except Exception as e:
+            os.unlink(tmp_path)
+            raise RuntimeError(f"No se pudo leer el archivo de audio: {e}") from e
+
+        duration_ms = len(audio)
+        duration_sec = duration_ms / 1000.0
+        n_segments = math.ceil(duration_sec / segment_seconds)
+        segments = []
+        base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+        for i in range(n_segments):
+            start_ms = i * segment_seconds * 1000
+            end_ms = min((i + 1) * segment_seconds * 1000, duration_ms)
+            chunk = audio[start_ms:end_ms]
+            seg_name = f"{base_name}_part{i+1}.m4a"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
+                chunk.export(seg_tmp.name, format="ipod", codec="aac")
+                seg_tmp.seek(0)
+                seg_bytes = open(seg_tmp.name, "rb").read()
+            segments.append({"name": seg_name, "bytes": seg_bytes})
+            os.unlink(seg_tmp.name)
+
         os.unlink(tmp_path)
-        raise RuntimeError(f"No se pudo leer el archivo de audio: {e}") from e
-
-    duration_ms = len(audio)
-    duration_sec = duration_ms / 1000.0
-    n_segments = math.ceil(duration_sec / segment_seconds)
-    segments = []
-    base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
-
-    for i in range(n_segments):
-        start_ms = i * segment_seconds * 1000
-        end_ms = min((i + 1) * segment_seconds * 1000, duration_ms)
-        chunk = audio[start_ms:end_ms]
-        seg_name = f"{base_name}_part{i+1}.m4a"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
-            chunk.export(seg_tmp.name, format="ipod", codec="aac")
-            seg_tmp.seek(0)
-            seg_bytes = open(seg_tmp.name, "rb").read()
-        segments.append({"name": seg_name, "bytes": seg_bytes})
-        os.unlink(seg_tmp.name)
-
-    os.unlink(tmp_path)
-    return segments
+        return segments
 
 
 # --- GitHub utils ---
