@@ -1,5 +1,8 @@
+# Cargar setuptools primero para que pkg_resources esté disponible (requerido por imageio-ffmpeg/moviepy en Python 3.13)
+import setuptools  # noqa: F401
+
 import streamlit as st
-# moviepy se importa de forma lazy dentro de split_audio para evitar problemas con pkg_resources en Python 3.13
+# moviepy se importa de forma lazy dentro de split_audio
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
 from typing import List
 from rapidfuzz import fuzz
