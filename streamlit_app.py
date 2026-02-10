@@ -1,6 +1,7 @@
-# setuptools primero para que pkg_resources esté disponible (requerido por imageio-ffmpeg/moviepy en Python 3.13)
+# setuptools y pkg_resources primero (requerido por imageio-ffmpeg/moviepy en Python 3.13)
 import setuptools  # noqa: F401
 import pkg_resources  # noqa: F401
+
 import streamlit as st
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
 from typing import List
