@@ -6,5 +6,5 @@ plotly==5.17.0
 requests==2.31.0
 rapidfuzz>=3.6.0
 pytz>=2022.7
-audioop-lts; python_version >= '3.13'
+audioop-lts; python_version>='3.13'
 pydub==0.25.1
