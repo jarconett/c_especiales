@@ -1,21 +1,12 @@
+# setuptools primero para que pkg_resources esté disponible (requerido por imageio-ffmpeg/moviepy en Python 3.13)
+import setuptools  # noqa: F401
+
 import streamlit as st
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
 from typing import List
 from rapidfuzz import fuzz
 import hashlib
 from datetime import datetime, timedelta, timezone
-
-# Cargar pydub al inicio (mismo entorno que Streamlit) para evitar fallos de importación en Cloud
-_PYDUB_AVAILABLE = False
-_PYDUB_ERROR = None
-try:
-    import warnings
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SyntaxWarning)
-        from pydub import AudioSegment as _AudioSegment
-    _PYDUB_AVAILABLE = True
-except Exception as e:
-    _PYDUB_ERROR = str(e)
 
 # Función helper para obtener la zona horaria de España
 def get_spain_timezone():
@@ -222,77 +213,66 @@ with col_logout:
 with col_title:
     st.title("💰🔊 A ganar billete 💵 💶 💴")
 
-# --- Helper functions (corte de audio con pydub; no usa moviepy ni pkg_resources) ---
-# En Windows usar ffmpeg local si existe; en Streamlit Cloud se usa ffmpeg del sistema (packages.txt)
+# --- Helper functions: corte de audio con moviepy ---
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", r"C:\Users\Javier\Downloads\ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+if FFMPEG_BIN and os.path.isfile(FFMPEG_BIN):
+    os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_BIN
 
 def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
-    """Divide el audio en fragmentos usando pydub (sin dependencia de moviepy ni pkg_resources)."""
-    if not _PYDUB_AVAILABLE:
-        err = _PYDUB_ERROR or "desconocido"
-        raise ImportError(
-            f"pydub no está disponible. Añade «pydub» a requirements.txt y vuelve a desplegar.\n"
-            f"Error al cargar: {err}"
-        )
-
+    """Divide el audio en fragmentos usando moviepy (como antes)."""
     import warnings
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SyntaxWarning)
-        AudioSegment = _AudioSegment
-
-        # Usar ffmpeg personalizado si está definido (p. ej. Windows local)
-        if FFMPEG_BIN and os.path.isfile(FFMPEG_BIN):
-            AudioSegment.converter = FFMPEG_BIN
-            AudioSegment.ffmpeg = FFMPEG_BIN
-            AudioSegment.ffprobe = FFMPEG_BIN.replace("ffmpeg", "ffprobe") if "ffmpeg" in FFMPEG_BIN else FFMPEG_BIN
-
-        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "m4a"
-        if ext not in ("m4a", "mp3", "wav", "ogg", "flac", "webm"):
-            ext = "m4a"
-
-        tmp_path = None
+        warnings.simplefilter("ignore", (SyntaxWarning, DeprecationWarning))
         try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmpfile:
-                tmpfile.write(audio_bytes)
-                tmp_path = tmpfile.name
+            from moviepy.editor import AudioFileClip
+        except ImportError as e:
+            raise ImportError(
+                f"Error al importar moviepy. Asegúrate de que esté en requirements.txt y de tener setuptools instalado.\nError: {e}"
+            ) from e
 
-            audio = AudioSegment.from_file(tmp_path, format=ext)
-            duration_ms = len(audio)
-            duration_sec = duration_ms / 1000.0
-            n_segments = math.ceil(duration_sec / segment_seconds)
-            if n_segments > 40:
-                raise RuntimeError(
-                    f"Demasiados fragmentos ({n_segments}). Reduce la duración del audio o el tamaño del archivo."
-                )
-            segments = []
-            base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
+        tmpfile.write(audio_bytes)
+        tmp_path = tmpfile.name
 
-            for i in range(n_segments):
-                start_ms = i * segment_seconds * 1000
-                end_ms = min((i + 1) * segment_seconds * 1000, duration_ms)
-                chunk = audio[start_ms:end_ms]
-                seg_name = f"{base_name}_part{i+1}.m4a"
-                seg_tmp_path = None
+    try:
+        clip = AudioFileClip(tmp_path)
+        duration = clip.duration
+        n_segments = math.ceil(duration / segment_seconds)
+        if n_segments > 40:
+            clip.close()
+            raise RuntimeError(
+                f"Demasiados fragmentos ({n_segments}). Reduce la duración del audio o el tamaño del archivo."
+            )
+        segments = []
+        base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+        for i in range(n_segments):
+            start = i * segment_seconds
+            end = min((i + 1) * segment_seconds, duration)
+            seg_clip = clip.subclip(start, end)
+            seg_name = f"{base_name}_part{i+1}.m4a"
+            seg_tmp_path = None
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
+                seg_tmp_path = seg_tmp.name
+                seg_clip.write_audiofile(seg_tmp_path, codec="aac", verbose=False, logger=None)
+                seg_clip.close()
+                seg_tmp.seek(0)
+                seg_bytes = open(seg_tmp_path, "rb").read()
+            segments.append({"name": seg_name, "bytes": seg_bytes})
+            if seg_tmp_path and os.path.isfile(seg_tmp_path):
                 try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
-                        chunk.export(seg_tmp.name, format="ipod", codec="aac")
-                        seg_tmp_path = seg_tmp.name
-                        seg_tmp.seek(0)
-                        seg_bytes = open(seg_tmp.name, "rb").read()
-                    segments.append({"name": seg_name, "bytes": seg_bytes})
-                finally:
-                    if seg_tmp_path and os.path.isfile(seg_tmp_path):
-                        try:
-                            os.unlink(seg_tmp_path)
-                        except OSError:
-                            pass
-            return segments
-        finally:
-            if tmp_path and os.path.isfile(tmp_path):
-                try:
-                    os.unlink(tmp_path)
+                    os.unlink(seg_tmp_path)
                 except OSError:
                     pass
+
+        clip.close()
+        return segments
+    finally:
+        if os.path.isfile(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 # --- GitHub utils ---
