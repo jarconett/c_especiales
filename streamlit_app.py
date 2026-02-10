@@ -5,6 +5,18 @@ from rapidfuzz import fuzz
 import hashlib
 from datetime import datetime, timedelta, timezone
 
+# Cargar pydub al inicio (mismo entorno que Streamlit) para evitar fallos de importación en Cloud
+_PYDUB_AVAILABLE = False
+_PYDUB_ERROR = None
+try:
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        from pydub import AudioSegment as _AudioSegment
+    _PYDUB_AVAILABLE = True
+except Exception as e:
+    _PYDUB_ERROR = str(e)
+
 # Función helper para obtener la zona horaria de España
 def get_spain_timezone():
     """Retorna la zona horaria de España (Europe/Madrid)."""
@@ -216,16 +228,17 @@ FFMPEG_BIN = os.environ.get("FFMPEG_BIN", r"C:\Users\Javier\Downloads\ffmpeg.exe
 
 def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
     """Divide el audio en fragmentos usando pydub (sin dependencia de moviepy ni pkg_resources)."""
+    if not _PYDUB_AVAILABLE:
+        err = _PYDUB_ERROR or "desconocido"
+        raise ImportError(
+            f"pydub no está disponible. Añade «pydub» a requirements.txt y vuelve a desplegar.\n"
+            f"Error al cargar: {err}"
+        )
+
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SyntaxWarning)
-        try:
-            from pydub import AudioSegment
-        except ImportError:
-            raise ImportError(
-                "Se necesita pydub. Instálalo con: pip install pydub\n"
-                "En Streamlit Cloud debe estar en requirements.txt."
-            )
+        AudioSegment = _AudioSegment
 
         # Usar ffmpeg personalizado si está definido (p. ej. Windows local)
         if FFMPEG_BIN and os.path.isfile(FFMPEG_BIN):
