@@ -1,8 +1,4 @@
-# Cargar setuptools primero para que pkg_resources esté disponible (requerido por imageio-ffmpeg/moviepy en Python 3.13)
-import setuptools  # noqa: F401
-
 import streamlit as st
-# moviepy se importa de forma lazy dentro de split_audio
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
 from typing import List
 from rapidfuzz import fuzz
@@ -214,44 +210,58 @@ with col_logout:
 with col_title:
     st.title("💰🔊 A ganar billete 💵 💶 💴")
 
-# --- Helper functions ---
-FFMPEG_BIN = r"C:\Users\Javier\Downloads\ffmpeg.exe"
-os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_BIN
+# --- Helper functions (corte de audio con pydub; no usa moviepy ni pkg_resources) ---
+# En Windows usar ffmpeg local si existe; en Streamlit Cloud se usa ffmpeg del sistema (packages.txt)
+FFMPEG_BIN = os.environ.get("FFMPEG_BIN", r"C:\Users\Javier\Downloads\ffmpeg.exe" if os.name == "nt" else "ffmpeg")
 
 def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
-    # Importación lazy de moviepy para evitar problemas con pkg_resources en Python 3.13
+    """Divide el audio en fragmentos usando pydub (sin dependencia de moviepy ni pkg_resources)."""
     try:
-        from moviepy.editor import AudioFileClip
-    except ImportError as e:
+        from pydub import AudioSegment
+    except ImportError:
         raise ImportError(
-            f"Error al importar moviepy. Asegúrate de que está instalado: pip install moviepy\n"
-            f"Error original: {str(e)}"
+            "Se necesita pydub. Instálalo con: pip install pydub\n"
+            "En Streamlit Cloud debe estar en requirements.txt."
         )
-    
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
+
+    # Usar ffmpeg personalizado si está definido (p. ej. Windows local)
+    if FFMPEG_BIN and os.path.isfile(FFMPEG_BIN):
+        AudioSegment.converter = FFMPEG_BIN
+        AudioSegment.ffmpeg = FFMPEG_BIN
+        AudioSegment.ffprobe = FFMPEG_BIN.replace("ffmpeg", "ffprobe") if "ffmpeg" in FFMPEG_BIN else FFMPEG_BIN
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "m4a"
+    if ext not in ("m4a", "mp3", "wav", "ogg", "flac", "webm"):
+        ext = "m4a"
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmpfile:
         tmpfile.write(audio_bytes)
         tmp_path = tmpfile.name
 
-    clip = AudioFileClip(tmp_path)
-    duration = clip.duration
-    n_segments = math.ceil(duration / segment_seconds)
+    try:
+        audio = AudioSegment.from_file(tmp_path, format=ext)
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise RuntimeError(f"No se pudo leer el archivo de audio: {e}") from e
+
+    duration_ms = len(audio)
+    duration_sec = duration_ms / 1000.0
+    n_segments = math.ceil(duration_sec / segment_seconds)
     segments = []
+    base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
 
     for i in range(n_segments):
-        start = i * segment_seconds
-        end = min((i + 1) * segment_seconds, duration)
-        seg_clip = clip.subclip(start, end)
-
-        seg_name = f"{filename.rsplit('.',1)[0]}_part{i+1}.m4a"
+        start_ms = i * segment_seconds * 1000
+        end_ms = min((i + 1) * segment_seconds * 1000, duration_ms)
+        chunk = audio[start_ms:end_ms]
+        seg_name = f"{base_name}_part{i+1}.m4a"
         with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
-            seg_clip.write_audiofile(seg_tmp.name, codec="aac", verbose=True, logger=None)
+            chunk.export(seg_tmp.name, format="ipod", codec="aac")
             seg_tmp.seek(0)
             seg_bytes = open(seg_tmp.name, "rb").read()
-
         segments.append({"name": seg_name, "bytes": seg_bytes})
         os.unlink(seg_tmp.name)
 
-    clip.close()
     os.unlink(tmp_path)
     return segments
 
@@ -1638,10 +1648,7 @@ with col1:
                 st.session_state['audio_segments'] = segments
                 st.success(f"Generados {len(segments)} fragmentos")
             except ImportError as e:
-                st.error(f"❌ Error de importación: {str(e)}\n\n"
-                         f"💡 **Solución:** Agrega `setuptools` a tus dependencias:\n"
-                         f"```bash\npip install setuptools\n```\n"
-                         f"O en Streamlit Cloud, agrega `setuptools` a tu archivo `requirements.txt`")
+                st.error(f"❌ Error de importación: {str(e)}")
             except Exception as e:
                 st.error(f"❌ Error al procesar el audio: {str(e)}")
     if 'audio_segments' in st.session_state:
