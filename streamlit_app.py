@@ -260,13 +260,17 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
             seg_tmp_path = tempfile.mktemp(suffix=".m4a")
             try:
                 cmd = [
-                    ffmpeg_exe, "-y", "-i", tmp_path,
-                    "-ss", str(start_sec), "-t", str(duration_seg),
-                    "-c", "copy", seg_tmp_path
+                    ffmpeg_exe, "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", tmp_path, "-ss", str(start_sec), "-t", str(duration_seg),
+                    "-c:a", "aac", "-b:a", "128k", seg_tmp_path
                 ]
-                result = subprocess.run(cmd, capture_output=True, timeout=120)
+                run_kw = {"capture_output": True, "timeout": 120}
+                if os.name == "nt" and getattr(subprocess, "CREATE_NO_WINDOW", None) is not None:
+                    run_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+                result = subprocess.run(cmd, **run_kw)
                 if result.returncode != 0:
-                    raise RuntimeError(f"ffmpeg falló: {(result.stderr or result.stdout)[:500]}")
+                    err = (result.stderr or result.stdout or b"").decode("utf-8", errors="replace").strip()
+                    raise RuntimeError(f"ffmpeg falló: {err[:800]}")
                 with open(seg_tmp_path, "rb") as f:
                     seg_bytes = f.read()
                 segments.append({"name": seg_name, "bytes": seg_bytes})
