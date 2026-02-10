@@ -1,9 +1,6 @@
-# setuptools y pkg_resources primero (requerido por imageio-ffmpeg/moviepy en Python 3.13)
-import setuptools  # noqa: F401
-import pkg_resources  # noqa: F401
-
 import streamlit as st
 import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
+import subprocess
 from typing import List
 from rapidfuzz import fuzz
 import hashlib
@@ -214,62 +211,75 @@ with col_logout:
 with col_title:
     st.title("💰🔊 A ganar billete 💵 💶 💴")
 
-# --- Helper functions: corte de audio con moviepy ---
+# --- Helper functions: corte de audio con ffmpeg (subprocess) - sin pydub/moviepy, soporta archivos grandes ---
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", r"C:\Users\Javier\Downloads\ffmpeg.exe" if os.name == "nt" else "ffmpeg")
-if FFMPEG_BIN and os.path.isfile(FFMPEG_BIN):
-    os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_BIN
+FFPROBE_BIN = os.environ.get("FFPROBE_BIN", FFMPEG_BIN.replace("ffmpeg", "ffprobe") if isinstance(FFMPEG_BIN, str) and "ffmpeg" in FFMPEG_BIN else "ffprobe")
+if not (FFPROBE_BIN and os.path.isfile(FFPROBE_BIN)):
+    FFPROBE_BIN = "ffprobe"
+
+def _get_audio_duration_seconds(ffprobe_exe: str, path: str) -> float:
+    """Obtiene la duración en segundos con ffprobe."""
+    cmd = [
+        ffprobe_exe, "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", path
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe falló: {result.stderr or result.stdout}")
+    return float(result.stdout.strip())
 
 def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
-    """Divide el audio en fragmentos usando moviepy (como antes)."""
-    import warnings
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", (SyntaxWarning, DeprecationWarning))
-        try:
-            from moviepy.editor import AudioFileClip
-        except ImportError as e:
-            raise ImportError(
-                f"Error al importar moviepy. Asegúrate de que esté en requirements.txt y de tener setuptools instalado.\nError: {e}"
-            ) from e
+    """Divide el audio en fragmentos usando ffmpeg (subprocess). Compatible con archivos grandes (p. ej. 96 MB)."""
+    ffmpeg_exe = FFMPEG_BIN if (FFMPEG_BIN and os.path.isfile(FFMPEG_BIN)) else "ffmpeg"
+    ffprobe_exe = FFPROBE_BIN if (FFPROBE_BIN and os.path.isfile(FFPROBE_BIN)) else "ffprobe"
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
-        tmpfile.write(audio_bytes)
-        tmp_path = tmpfile.name
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "m4a"
+    if ext not in ("m4a", "mp3", "wav", "ogg", "flac", "webm"):
+        ext = "m4a"
 
+    tmp_path = None
     try:
-        clip = AudioFileClip(tmp_path)
-        duration = clip.duration
-        n_segments = math.ceil(duration / segment_seconds)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmpfile:
+            tmpfile.write(audio_bytes)
+            tmp_path = tmpfile.name
+
+        duration_sec = _get_audio_duration_seconds(ffprobe_exe, tmp_path)
+        n_segments = math.ceil(duration_sec / segment_seconds)
         if n_segments > 40:
-            clip.close()
-            raise RuntimeError(
-                f"Demasiados fragmentos ({n_segments}). Reduce la duración del audio o el tamaño del archivo."
-            )
+            raise RuntimeError(f"Demasiados fragmentos ({n_segments}). Reduce la duración o el tamaño del archivo.")
+
         segments = []
         base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
 
         for i in range(n_segments):
-            start = i * segment_seconds
-            end = min((i + 1) * segment_seconds, duration)
-            seg_clip = clip.subclip(start, end)
+            start_sec = i * segment_seconds
+            duration_seg = min(segment_seconds, duration_sec - start_sec)
+            if duration_seg <= 0:
+                break
             seg_name = f"{base_name}_part{i+1}.m4a"
-            seg_tmp_path = None
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
-                seg_tmp_path = seg_tmp.name
-                seg_clip.write_audiofile(seg_tmp_path, codec="aac", verbose=False, logger=None)
-                seg_clip.close()
-                seg_tmp.seek(0)
-                seg_bytes = open(seg_tmp_path, "rb").read()
-            segments.append({"name": seg_name, "bytes": seg_bytes})
-            if seg_tmp_path and os.path.isfile(seg_tmp_path):
-                try:
-                    os.unlink(seg_tmp_path)
-                except OSError:
-                    pass
+            seg_tmp_path = tempfile.mktemp(suffix=".m4a")
+            try:
+                cmd = [
+                    ffmpeg_exe, "-y", "-i", tmp_path,
+                    "-ss", str(start_sec), "-t", str(duration_seg),
+                    "-c", "copy", seg_tmp_path
+                ]
+                result = subprocess.run(cmd, capture_output=True, timeout=120)
+                if result.returncode != 0:
+                    raise RuntimeError(f"ffmpeg falló: {(result.stderr or result.stdout)[:500]}")
+                with open(seg_tmp_path, "rb") as f:
+                    seg_bytes = f.read()
+                segments.append({"name": seg_name, "bytes": seg_bytes})
+            finally:
+                if os.path.isfile(seg_tmp_path):
+                    try:
+                        os.unlink(seg_tmp_path)
+                    except OSError:
+                        pass
 
-        clip.close()
         return segments
     finally:
-        if os.path.isfile(tmp_path):
+        if tmp_path and os.path.isfile(tmp_path):
             try:
                 os.unlink(tmp_path)
             except OSError:
