@@ -250,36 +250,49 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
         if ext not in ("m4a", "mp3", "wav", "ogg", "flac", "webm"):
             ext = "m4a"
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmpfile:
-            tmpfile.write(audio_bytes)
-            tmp_path = tmpfile.name
-
+        tmp_path = None
         try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmpfile:
+                tmpfile.write(audio_bytes)
+                tmp_path = tmpfile.name
+
             audio = AudioSegment.from_file(tmp_path, format=ext)
-        except Exception as e:
-            os.unlink(tmp_path)
-            raise RuntimeError(f"No se pudo leer el archivo de audio: {e}") from e
+            duration_ms = len(audio)
+            duration_sec = duration_ms / 1000.0
+            n_segments = math.ceil(duration_sec / segment_seconds)
+            if n_segments > 40:
+                raise RuntimeError(
+                    f"Demasiados fragmentos ({n_segments}). Reduce la duración del audio o el tamaño del archivo."
+                )
+            segments = []
+            base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
 
-        duration_ms = len(audio)
-        duration_sec = duration_ms / 1000.0
-        n_segments = math.ceil(duration_sec / segment_seconds)
-        segments = []
-        base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
-
-        for i in range(n_segments):
-            start_ms = i * segment_seconds * 1000
-            end_ms = min((i + 1) * segment_seconds * 1000, duration_ms)
-            chunk = audio[start_ms:end_ms]
-            seg_name = f"{base_name}_part{i+1}.m4a"
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
-                chunk.export(seg_tmp.name, format="ipod", codec="aac")
-                seg_tmp.seek(0)
-                seg_bytes = open(seg_tmp.name, "rb").read()
-            segments.append({"name": seg_name, "bytes": seg_bytes})
-            os.unlink(seg_tmp.name)
-
-        os.unlink(tmp_path)
-        return segments
+            for i in range(n_segments):
+                start_ms = i * segment_seconds * 1000
+                end_ms = min((i + 1) * segment_seconds * 1000, duration_ms)
+                chunk = audio[start_ms:end_ms]
+                seg_name = f"{base_name}_part{i+1}.m4a"
+                seg_tmp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as seg_tmp:
+                        chunk.export(seg_tmp.name, format="ipod", codec="aac")
+                        seg_tmp_path = seg_tmp.name
+                        seg_tmp.seek(0)
+                        seg_bytes = open(seg_tmp.name, "rb").read()
+                    segments.append({"name": seg_name, "bytes": seg_bytes})
+                finally:
+                    if seg_tmp_path and os.path.isfile(seg_tmp_path):
+                        try:
+                            os.unlink(seg_tmp_path)
+                        except OSError:
+                            pass
+            return segments
+        finally:
+            if tmp_path and os.path.isfile(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
 
 # --- GitHub utils ---
@@ -1658,7 +1671,7 @@ with col1:
     segment_minutes = st.number_input("Duración de cada fragmento (minutos)", min_value=1, max_value=180, value=30)
     if uploaded and st.button("Procesar audio y generar fragmentos"):
         audio_bytes = uploaded.read()
-        with st.spinner("Cortando audio..."):
+        with st.spinner("Cortando audio... (puede tardar 1–2 min)"):
             try:
                 segments = split_audio(audio_bytes, uploaded.name, segment_seconds=int(segment_minutes*60))
                 st.session_state['audio_segments'] = segments
@@ -1666,7 +1679,8 @@ with col1:
             except ImportError as e:
                 st.error(f"❌ Error de importación: {str(e)}")
             except Exception as e:
-                st.error(f"❌ Error al procesar el audio: {str(e)}")
+                st.error(f"❌ Error al procesar el audio: {type(e).__name__}: {str(e)}")
+                st.caption("Si el archivo es largo o muy pesado, prueba con uno más corto o hazlo en local con la app.")
     if 'audio_segments' in st.session_state:
         st.markdown("### Descargar fragmentos")
         for seg in st.session_state['audio_segments']:
@@ -1675,6 +1689,7 @@ with col1:
 with col2:
     st.markdown("""
     **Importante**:
+    - Soporta archivos de hasta ~100 MB (p. ej. 96 MB).
     - [Cortar audio online](https://mp3cut.net/es)
     - [Transcripción automática](https://turboscribe.ai/)
     - [ffmpeg](https://www.gyan.dev/ffmpeg/builds)
