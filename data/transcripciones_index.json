@@ -41,9 +41,9 @@
       "size": 8846
     },
     "02022026 part1.txt": {
-      "sha": "1a5712bcf4515f6afcedfb0a20caf6352695892043d8483560e13def69a468a5",
+      "sha": "d47b421a2e3fa229776c2e753b40706b5693721520480d37172b22a8aeeb0adf",
       "folder": "transcripciones",
-      "size": 34266
+      "size": 34243
     },
     "02022026 part2.txt": {
       "sha": "dcd563ecf3b65ac5fa849fca1f61783f78e03fd8ce38bee37b5935477e3ada47",
@@ -2156,7 +2156,7 @@
       "size": 101412
     }
   },
-  "timestamp": "2026-02-13T07:59:59.848251+00:00",
+  "timestamp": "2026-02-13T14:31:04.263808+00:00",
   "total_files": 431,
   "df_rows": 82209
 }
