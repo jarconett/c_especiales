@@ -705,6 +705,26 @@
       "folder": "transcripciones",
       "size": 117956
     },
+    "11022026 part1.txt": {
+      "sha": "503b2fe832e8879f77281fbd77971d6eecbcb215b8952f884cf48f880ecc3ea9",
+      "folder": "transcripciones",
+      "size": 34719
+    },
+    "11022026 part2.txt": {
+      "sha": "868a4f645e2fb307fab4950fd71a3e7dfd0324d19de24e3aa6969f510e480baf",
+      "folder": "transcripciones",
+      "size": 26256
+    },
+    "11022026 part3.txt": {
+      "sha": "da627a32db8f4301bb58ea0dd70803577a283d52c8384039d21804561b1cc95a",
+      "folder": "transcripciones",
+      "size": 31626
+    },
+    "11022026 part4.txt": {
+      "sha": "246ccf290803460e09be07e04d742fe23530a5ab402acd60e08864f5c0158d9a",
+      "folder": "transcripciones",
+      "size": 13966
+    },
     "11092025 part1.txt": {
       "sha": "4d48096c279de0dddfbbc3a16731aeaa81dd0e755578927372eeb23870825cbc",
       "folder": "transcripciones",
@@ -764,6 +784,26 @@
       "sha": "f9d0af80baf5e3f1e2a91a196aa78930759c1cf60c15b5f2caeb629e5908861a",
       "folder": "transcripciones",
       "size": 18905
+    },
+    "12022026 part1.txt": {
+      "sha": "32b720935d40d77aaf357f2f85f5ac2db79659cf22571925d38818e15abf6e4d",
+      "folder": "transcripciones",
+      "size": 26392
+    },
+    "12022026 part2.txt": {
+      "sha": "c1a253b9a3ada4b6b37c7f4d206f51d8de333228d7df43001c11b9ae69299f91",
+      "folder": "transcripciones",
+      "size": 32637
+    },
+    "12022026 part3.txt": {
+      "sha": "2cd5b7c87550e05c9e57faacd881e694ba99c147b1e4f01fb72bc2736384b898",
+      "folder": "transcripciones",
+      "size": 36439
+    },
+    "12022026 part4.txt": {
+      "sha": "3ffb4127e1c6d9ea45628dc450db365af2ce072ee5ce67dcc341a9c19b9d6a6d",
+      "folder": "transcripciones",
+      "size": 19380
     },
     "12092025 part1.txt": {
       "sha": "6f8bde159c6674db6d6f714e722279c4f273a432b7a7601987e8709dddadf4e2",
@@ -2116,7 +2156,7 @@
       "size": 101412
     }
   },
-  "timestamp": "2026-02-12T13:33:33.847889+00:00",
-  "total_files": 423,
-  "df_rows": 80471
+  "timestamp": "2026-02-13T07:32:32.198888+00:00",
+  "total_files": 431,
+  "df_rows": 82209
 }
