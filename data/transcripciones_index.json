@@ -1075,6 +1075,16 @@
       "folder": "transcripciones",
       "size": 17188
     },
+    "16022026 part3.txt": {
+      "sha": "7e5432209ccaf72c27ec9620875a93840c58780ed11498762bfd5bdc7b69a300",
+      "folder": "transcripciones",
+      "size": 30951
+    },
+    "16022026 part4.txt": {
+      "sha": "f0face741326afec15e36d9de764d749985e408f06bee52ef137bfefc94d95f9",
+      "folder": "transcripciones",
+      "size": 6601
+    },
     "16092025 part1.txt": {
       "sha": "120d0667316996a7218dc3c20932824b8cfce2a0383d15886528ca14335975d3",
       "folder": "transcripciones",
@@ -2176,7 +2186,7 @@
       "size": 101412
     }
   },
-  "timestamp": "2026-02-16T14:09:13.823207+00:00",
-  "total_files": 435,
-  "df_rows": 83064
+  "timestamp": "2026-02-17T12:43:39.539434+00:00",
+  "total_files": 437,
+  "df_rows": 83331
 }
