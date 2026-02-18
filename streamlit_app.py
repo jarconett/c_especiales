@@ -377,9 +377,13 @@ def _get_file_sha(files: List[dict]) -> dict:
     return file_index
 
 
+# Tamaño máximo por archivo para la API de GitHub (~45 MB en binario; base64 ~33% más)
+_DF_CHUNK_BYTES = 42 * 1024 * 1024
+
 def _save_dataframe_to_github(repo_url: str, df: pd.DataFrame, file_index: dict, path: str = "data") -> tuple[bool, str]:
     """
     Guarda el DataFrame serializado y el índice en GitHub.
+    Si el DataFrame es muy grande, lo divide en partes (transcripciones_df_part_0.pkl, ...).
     Retorna (éxito, mensaje_error)
     """
     owner, repo = _parse_repo_url(repo_url)
@@ -394,57 +398,66 @@ def _save_dataframe_to_github(repo_url: str, df: pd.DataFrame, file_index: dict,
         import pickle
         import json
         
-        # Serializar DataFrame
         df_bytes = pickle.dumps(df)
-        df_base64 = base64.b64encode(df_bytes).decode('utf-8')
+        base_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
         
-        # Crear índice con metadatos
+        # Dividir en chunks si supera el límite
+        chunks = []
+        offset = 0
+        while offset < len(df_bytes):
+            chunk = df_bytes[offset:offset + _DF_CHUNK_BYTES]
+            chunks.append(chunk)
+            offset += len(chunk)
+        
+        n_parts = len(chunks)
+        
+        # Guardar cada parte
+        for i, chunk in enumerate(chunks):
+            chunk_b64 = base64.b64encode(chunk).decode('utf-8')
+            part_url = f"{base_url}/transcripciones_df_part_{i}.pkl"
+            part_data = {
+                "message": f"Actualizar DataFrame parte {i+1}/{n_parts} ({len(df)} filas)",
+                "content": chunk_b64
+            }
+            resp = requests.get(part_url, headers=headers)
+            if resp.status_code == 200:
+                part_data["sha"] = resp.json().get("sha")
+            put_resp = requests.put(part_url, headers=headers, json=part_data, timeout=60)
+            if put_resp.status_code not in [200, 201]:
+                return False, f"Error al guardar parte {i+1}: {put_resp.status_code} - {put_resp.text[:200]}"
+        
+        # Eliminar partes sobrantes si antes había más (ej. antes 3 partes, ahora 2)
+        part_idx = n_parts
+        while True:
+            part_url = f"{base_url}/transcripciones_df_part_{part_idx}.pkl"
+            resp = requests.get(part_url, headers=headers)
+            if resp.status_code != 200:
+                break
+            sha = resp.json().get("sha")
+            del_resp = requests.delete(part_url, headers=headers, json={"message": "Eliminar parte obsoleta", "sha": sha}, timeout=30)
+            part_idx += 1
+        
+        # Índice con metadatos y número de partes
         index_data = {
             'file_index': file_index,
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'total_files': len(file_index),
-            'df_rows': len(df)
+            'df_rows': len(df),
+            'df_parts': n_parts
         }
         index_json = json.dumps(index_data, indent=2)
         index_base64 = base64.b64encode(index_json.encode('utf-8')).decode('utf-8')
-        
-        # Intentar crear/actualizar archivos en GitHub
-        base_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-        
-        # Guardar DataFrame
-        df_file_url = f"{base_url}/transcripciones_df.pkl"
-        df_data = {
-            "message": f"Actualizar DataFrame de transcripciones ({len(df)} filas, {len(file_index)} archivos)",
-            "content": df_base64
-        }
-        
-        # Verificar si el archivo ya existe para obtener su SHA
-        df_resp = requests.get(df_file_url, headers=headers)
-        if df_resp.status_code == 200:
-            df_data["sha"] = df_resp.json().get("sha")
-            df_resp = requests.put(df_file_url, headers=headers, json=df_data)
-        else:
-            df_resp = requests.put(df_file_url, headers=headers, json=df_data)
-        
-        if df_resp.status_code not in [200, 201]:
-            return False, f"Error al guardar DataFrame: {df_resp.status_code} - {df_resp.text[:200]}"
-        
-        # Guardar índice
         index_file_url = f"{base_url}/transcripciones_index.json"
         index_data_put = {
-            "message": f"Actualizar índice de transcripciones ({len(file_index)} archivos)",
+            "message": f"Actualizar índice ({len(file_index)} archivos, DataFrame en {n_parts} partes)",
             "content": index_base64
         }
-        
         index_resp = requests.get(index_file_url, headers=headers)
         if index_resp.status_code == 200:
             index_data_put["sha"] = index_resp.json().get("sha")
-            index_resp = requests.put(index_file_url, headers=headers, json=index_data_put)
-        else:
-            index_resp = requests.put(index_file_url, headers=headers, json=index_data_put)
-        
-        if index_resp.status_code not in [200, 201]:
-            return False, f"Error al guardar índice: {index_resp.status_code} - {index_resp.text[:200]}"
+        index_put = requests.put(index_file_url, headers=headers, json=index_data_put, timeout=30)
+        if index_put.status_code not in [200, 201]:
+            return False, f"Error al guardar índice: {index_put.status_code} - {index_put.text[:200]}"
         
         return True, ""
         
@@ -493,22 +506,34 @@ def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.D
         index_content = base64.b64decode(index_resp.json()["content"]).decode('utf-8')
         index_data = json.loads(index_content)
         file_index = index_data.get('file_index', {})
+        df_parts = index_data.get('df_parts', 1)
         
-        # Cargar DataFrame con timeout razonable para archivos grandes (17MB)
-        df_file_url = f"{base_url}/transcripciones_df.pkl"
+        # Cargar DataFrame: varias partes o uno solo (legacy)
         df_start = time.time()
-        df_resp = requests.get(df_file_url, headers=headers, timeout=120, stream=False)  # Aumentar timeout a 2 minutos
+        parts_content = []
+        if df_parts and int(df_parts) > 1:
+            for i in range(int(df_parts)):
+                part_url = f"{base_url}/transcripciones_df_part_{i}.pkl"
+                part_resp = requests.get(part_url, headers=headers, timeout=120)
+                if part_resp.status_code != 200:
+                    return pd.DataFrame(), {}, f"Parte {i+1} no encontrada: {part_resp.status_code}"
+                parts_content.append(base64.b64decode(part_resp.json()["content"]))
+            df_content = b"".join(parts_content)
+        else:
+            part0_url = f"{base_url}/transcripciones_df_part_0.pkl"
+            part0_resp = requests.get(part0_url, headers=headers, timeout=120)
+            if part0_resp.status_code == 200:
+                df_content = base64.b64decode(part0_resp.json()["content"])
+            else:
+                legacy_url = f"{base_url}/transcripciones_df.pkl"
+                legacy_resp = requests.get(legacy_url, headers=headers, timeout=120)
+                if legacy_resp.status_code != 200:
+                    return pd.DataFrame(), {}, f"DataFrame no encontrado: {legacy_resp.status_code}"
+                df_content = base64.b64decode(legacy_resp.json()["content"])
+        
         df_download_time = time.time() - df_start
-        
-        if df_resp.status_code != 200:
-            return pd.DataFrame(), {}, f"DataFrame no encontrado: {df_resp.status_code}"
-        
-        # Decodificar el contenido base64
         decode_start = time.time()
-        df_content = base64.b64decode(df_resp.json()["content"])
         decode_time = time.time() - decode_start
-        
-        # Deserializar el pickle (esto puede tardar un poco con 17MB)
         pickle_start = time.time()
         df = pickle.loads(df_content)
         pickle_time = time.time() - pickle_start
@@ -1020,7 +1045,7 @@ def search_transcriptions(
 ) -> pd.DataFrame:
     """
     Búsqueda flexible con texto normalizado.
-    PRIORIDAD: Primero busca en archivos de 'transcripciones', si no encuentra nada, busca en 'spoti'.
+    Siempre busca en 'transcripciones' y en 'spoti' y muestra los resultados de ambas carpetas.
     """
     if df.empty or not query:
         return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview", "folder"])
@@ -1090,16 +1115,18 @@ def search_transcriptions(
         
         return results
 
-    # --- 1️⃣ PRIMERO buscar en transcripciones ---
-    results = search_in_dataframe(df_transcripciones)
+    # --- Buscar siempre en transcripciones y en spoti ---
+    results_trans = search_in_dataframe(df_transcripciones)
+    results_spoti = search_in_dataframe(df_spoti) if not df_spoti.empty else pd.DataFrame()
     
-    # --- 2️⃣ Si no hay resultados en transcripciones, buscar en spoti ---
-    if results.empty and not df_spoti.empty:
-        if fuzzy_mode != "ninguno":
-            st.info(f"🔍 No se encontraron resultados en transcripciones. Buscando en spoti con modo fuzzy (umbral: {threshold}%)...")
-        else:
-            st.info("ℹ️ No se encontraron resultados en transcripciones. Buscando en spoti...")
-        results = search_in_dataframe(df_spoti)
+    if not results_trans.empty and not results_spoti.empty:
+        results = pd.concat([results_trans, results_spoti], ignore_index=True)
+    elif not results_trans.empty:
+        results = results_trans
+    elif not results_spoti.empty:
+        results = results_spoti
+    else:
+        results = pd.DataFrame()
 
     if results.empty:
         return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview", "folder"])
