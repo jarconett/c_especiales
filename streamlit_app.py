@@ -1026,11 +1026,13 @@ def build_transcriptions_dataframe(files: List[dict]) -> pd.DataFrame:
 
 # --- Texto y búsqueda optimizados ---
 def normalize_text(text: str) -> str:
-    """Normaliza texto: minúsculas, sin tildes, sin saltos ni espacios extra."""
+    """Normaliza texto: minúsculas, sin tildes, sin puntuación, sin saltos ni espacios extra (para búsqueda)."""
     if not isinstance(text, str):
         return ""
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    # Quitar puntuación: sustituir por espacio para no juntar palabras
+    text = re.sub(r"[^\w\s]", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip().lower()
 
