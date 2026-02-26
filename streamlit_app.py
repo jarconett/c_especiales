@@ -1037,6 +1037,16 @@ def normalize_text(text: str) -> str:
     return text.strip().lower()
 
 
+# Palabras frecuentes que se ignoran al exigir "todas las palabras" (menor peso en la búsqueda)
+_STOP_WORDS = frozenset({
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "al", "a", "de", "del", "en", "por", "para",
+    "con", "sin", "sobre", "bajo", "entre", "hacia", "desde", "hasta", "durante", "mediante", "según",
+    "que", "qué", "cual", "cuales", "quien", "quienes", "cuando", "donde", "como", "porque", "si", "no",
+    "y", "e", "o", "u", "pero", "sino", "aunque", "porque", "pues", "ya", "también", "solo", "más",
+    "menos", "muy", "tan", "esto", "esta", "ese", "esa", "aquel", "aquella", "su", "sus", "mi", "tu"
+})
+
+
 # --- Búsqueda optimizada con fuzzy ---
 def search_transcriptions(
     df: pd.DataFrame,
@@ -1080,9 +1090,12 @@ def search_transcriptions(
             # 1️⃣ Primero busca la frase completa
             mask = df_subset["text_norm"].str.contains(re.escape(query_norm), na=False)
 
-             # 2️⃣ Si no hay resultados, busca todas las palabras en cualquier orden
+            # 2️⃣ Si no hay resultados, busca por palabras (ignorando artículos y preposiciones)
             if not mask.any():
-                terms = [t for t in query_norm.split() if t]
+                all_terms = [t for t in query_norm.split() if t]
+                terms = [t for t in all_terms if t not in _STOP_WORDS]
+                if not terms:
+                    terms = all_terms  # Si todo son stop words, usar todas
                 if terms:
                     mask = df_subset["text_norm"].apply(lambda t: all(term in t for term in terms))
             results = df_subset.loc[mask].copy()
@@ -1100,7 +1113,8 @@ def search_transcriptions(
             rows = df_subset.to_dict("records")
 
             if fuzzy_mode == "palabra":
-                query_terms = [t for t in query_norm.split() if t]
+                all_terms = [t for t in query_norm.split() if t]
+                query_terms = [t for t in all_terms if t not in _STOP_WORDS] or all_terms
                 for text, row in zip(texts, rows):
                     for term in query_terms:
                         score = fuzz.partial_ratio(term, text)
@@ -1174,60 +1188,22 @@ def get_speaker_bg_color(speaker: str) -> str:
     return "#f0f0f0"
 
 
-# --- Mostrar tabla de resultados con HTML ---
+def _strip_html(text):
+    """Quita etiquetas HTML para mostrar texto plano (p. ej. en tabla redimensionable)."""
+    if pd.isna(text) or not isinstance(text, str):
+        return ""
+    return re.sub(r"<[^>]+>", "", text).replace("&nbsp;", " ").strip()
+
+
+# --- Mostrar tabla de resultados (redimensionable) ---
 def display_results_table(results_df: pd.DataFrame):
-    """Muestra los resultados en una tabla HTML que respeta colores y renderiza HTML del resaltado."""
+    """Muestra los resultados en una tabla redimensionable (st.dataframe). La vista previa se muestra sin HTML."""
     if results_df.empty:
         return
-    
-    # Construir todas las filas primero
-    rows_html = []
-    for i, row in results_df.iterrows():
-        bg_color = get_speaker_bg_color(row['speaker'])
-        text_color = "white" if bg_color.lower() not in ["#f0f0f0", "salmon", "#ff8c00"] else "black"
-        
-        # Escapar el nombre del archivo y speaker para HTML (solo caracteres especiales, no el HTML del preview)
-        file_name = str(row['file']).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        speaker_name = str(row['speaker']).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        preview = row['match_preview']  # Ya contiene HTML del resaltado, no escapamos esto
-        
-        rows_html.append(f'<tr style="background-color: {bg_color}; color: {text_color};"><td>{file_name}</td><td><b>{speaker_name}</b></td><td>{preview}</td></tr>')
-    
-    # Construir el HTML completo de una vez
-    html_content = f"""
-<style>
-.results-table {{
-    width: 100%;
-    border-collapse: collapse;
-    margin: 10px 0;
-}}
-.results-table th {{
-    background-color: #4C98AF;
-    color: white;
-    padding: 8px;
-    text-align: left;
-    border: 1px solid #ddd;
-}}
-.results-table td {{
-    padding: 8px;
-    border: 1px solid #ddd;
-}}
-</style>
-<table class="results-table">
-<thead>
-<tr>
-<th>Archivo</th>
-<th>Orador</th>
-<th>Vista Previa</th>
-</tr>
-</thead>
-<tbody>
-{''.join(rows_html)}
-</tbody>
-</table>
-"""
-    
-    st.markdown(html_content, unsafe_allow_html=True)
+    display_df = results_df[["file", "speaker", "match_preview"]].copy()
+    display_df.columns = ["Archivo", "Orador", "Vista previa"]
+    display_df["Vista previa"] = display_df["Vista previa"].apply(_strip_html)
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 # --- Resaltar palabras coincidentes en el texto ---
