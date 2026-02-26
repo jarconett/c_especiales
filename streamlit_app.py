@@ -1053,11 +1053,13 @@ def search_transcriptions(
     query: str,
     use_regex: bool = False,
     fuzzy_mode: str = "contextual",
-    threshold: int = 86
+    threshold: int = 86,
+    use_stop_words: bool = True,
 ) -> pd.DataFrame:
     """
     Búsqueda flexible con texto normalizado.
     Siempre busca en 'transcripciones' y en 'spoti' y muestra los resultados de ambas carpetas.
+    use_stop_words: si True, ignora artículos/preposiciones al exigir "todas las palabras".
     """
     if df.empty or not query:
         return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview", "folder"])
@@ -1090,12 +1092,15 @@ def search_transcriptions(
             # 1️⃣ Primero busca la frase completa
             mask = df_subset["text_norm"].str.contains(re.escape(query_norm), na=False)
 
-            # 2️⃣ Si no hay resultados, busca por palabras (ignorando artículos y preposiciones)
+            # 2️⃣ Si no hay resultados, busca por palabras (opcional: ignorar artículos y preposiciones)
             if not mask.any():
                 all_terms = [t for t in query_norm.split() if t]
-                terms = [t for t in all_terms if t not in _STOP_WORDS]
-                if not terms:
-                    terms = all_terms  # Si todo son stop words, usar todas
+                if use_stop_words:
+                    terms = [t for t in all_terms if t not in _STOP_WORDS]
+                    if not terms:
+                        terms = all_terms
+                else:
+                    terms = all_terms
                 if terms:
                     mask = df_subset["text_norm"].apply(lambda t: all(term in t for term in terms))
             results = df_subset.loc[mask].copy()
@@ -1114,7 +1119,7 @@ def search_transcriptions(
 
             if fuzzy_mode == "palabra":
                 all_terms = [t for t in query_norm.split() if t]
-                query_terms = [t for t in all_terms if t not in _STOP_WORDS] or all_terms
+                query_terms = ([t for t in all_terms if t not in _STOP_WORDS] or all_terms) if use_stop_words else all_terms
                 for text, row in zip(texts, rows):
                     for term in query_terms:
                         score = fuzz.partial_ratio(term, text)
@@ -1188,22 +1193,41 @@ def get_speaker_bg_color(speaker: str) -> str:
     return "#f0f0f0"
 
 
-def _strip_html(text):
-    """Quita etiquetas HTML para mostrar texto plano (p. ej. en tabla redimensionable)."""
-    if pd.isna(text) or not isinstance(text, str):
-        return ""
-    return re.sub(r"<[^>]+>", "", text).replace("&nbsp;", " ").strip()
-
-
-# --- Mostrar tabla de resultados (redimensionable) ---
+# --- Mostrar tabla de resultados con colores por orador y resaltado de coincidencias ---
 def display_results_table(results_df: pd.DataFrame):
-    """Muestra los resultados en una tabla redimensionable (st.dataframe). La vista previa se muestra sin HTML."""
+    """Muestra los resultados en tabla HTML: fondo por orador y palabras encontradas resaltadas."""
     if results_df.empty:
         return
-    display_df = results_df[["file", "speaker", "match_preview"]].copy()
-    display_df.columns = ["Archivo", "Orador", "Vista previa"]
-    display_df["Vista previa"] = display_df["Vista previa"].apply(_strip_html)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    rows_html = []
+    for i, row in results_df.iterrows():
+        bg_color = get_speaker_bg_color(row["speaker"])
+        text_color = "white" if bg_color.lower() not in ["#f0f0f0", "salmon", "#ff8c00"] else "black"
+        file_name = str(row["file"]).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        speaker_name = str(row["speaker"]).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        preview = row["match_preview"]
+        rows_html.append(
+            f'<tr style="background-color: {bg_color}; color: {text_color};"><td>{file_name}</td><td><b>{speaker_name}</b></td><td>{preview}</td></tr>'
+        )
+    html_content = f"""
+<style>
+.results-table {{ width: 100%; border-collapse: collapse; margin: 10px 0; table-layout: fixed; }}
+.results-table th {{ background-color: #4C98AF; color: white; padding: 8px; text-align: left; border: 1px solid #ddd; }}
+.results-table td {{ padding: 8px; border: 1px solid #ddd; }}
+.results-table col.archivo {{ width: 12ch; }}
+.results-table col.orador {{ width: 6ch; }}
+.results-table col.vista {{ width: auto; min-width: 50%; }}
+</style>
+<table class="results-table">
+<colgroup>
+<col class="archivo">
+<col class="orador">
+<col class="vista">
+</colgroup>
+<thead><tr><th>Archivo</th><th>Orador</th><th>Vista Previa</th></tr></thead>
+<tbody>{''.join(rows_html)}</tbody>
+</table>
+"""
+    st.markdown(html_content, unsafe_allow_html=True)
 
 
 # --- Resaltar palabras coincidentes en el texto ---
@@ -1952,6 +1976,11 @@ if 'trans_df' in st.session_state:
 
     with opt_col:
         use_regex = st.checkbox("Usar regex", value=False)
+        use_stop_words = st.checkbox(
+            "Ignorar palabras frecuentes (art., prep.)",
+            value=True,
+            help="Si está activado, no se exige coincidir artículos ni preposiciones (el, la, de, en…)."
+        )
         speaker_filter = st.selectbox(
             "Filtrar por orador",
             options=["(todos)"] + sorted(df['speaker'].unique().tolist())
@@ -1960,7 +1989,7 @@ if 'trans_df' in st.session_state:
         threshold = st.slider("Umbral similitud (%)", 60, 95, 86)
 
     if st.button("Buscar"):
-        res = search_transcriptions(df, query, use_regex, fuzzy_mode, threshold)
+        res = search_transcriptions(df, query, use_regex, fuzzy_mode, threshold, use_stop_words=use_stop_words)
         if speaker_filter != "(todos)":
             res = res[res['speaker'] == speaker_filter]
 
