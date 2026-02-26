@@ -1152,18 +1152,20 @@ def search_transcriptions(
     if results.empty:
         return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview", "folder"])
 
-    # --- Crear vista previa con resaltado ---
+    # --- Crear vista previa con resaltado (snippet largo para usar mejor el ancho disponible) ---
+    _preview_len = 480  # caracteres a mostrar en vista previa
+    _context_before = 60
+
     def make_preview(text):
         tnorm = normalize_text(text)
         idx = tnorm.find(query_norm)
         if idx != -1:
-            start = max(0, idx - 30)
-            snippet = text[start:start + 160]
-            preview_text = ("..." if start > 0 else "") + snippet + ("..." if len(text) > start + 160 else "")
+            start = max(0, idx - _context_before)
+            end = min(len(text), start + _preview_len)
+            snippet = text[start:end]
+            preview_text = ("..." if start > 0 else "") + snippet + ("..." if end < len(text) else "")
         else:
-            preview_text = text[:160] + "..."
-        
-        # Aplicar resaltado a las palabras coincidentes
+            preview_text = text[:_preview_len] + ("..." if len(text) > _preview_len else "")
         return highlight_matching_words(preview_text, query)
 
     results["match_preview"] = results["text"].apply(make_preview)
@@ -1214,8 +1216,9 @@ def display_results_table(results_df: pd.DataFrame):
 .results-table th {{ background-color: #4C98AF; color: white; padding: 8px; text-align: left; border: 1px solid #ddd; }}
 .results-table td {{ padding: 8px; border: 1px solid #ddd; }}
 .results-table col.archivo {{ width: 12ch; }}
-.results-table col.orador {{ width: 6ch; }}
-.results-table col.vista {{ width: auto; min-width: 50%; }}
+.results-table col.orador {{ width: 12ch; }}
+.results-table col.vista {{ width: auto; min-width: 0; }}
+.results-table td:nth-child(3) {{ word-wrap: break-word; overflow-wrap: break-word; white-space: normal; }}
 </style>
 <table class="results-table">
 <colgroup>
