@@ -618,7 +618,11 @@ def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str
     return has_changes, new_file_index
 
 
-def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> tuple[List[dict], str]:
+def read_txt_files_from_github(
+    repo_url: str,
+    path: str = "transcripciones",
+    status_cb: callable | None = None,
+) -> tuple[List[dict], str]:
     """
     Lee archivos .txt desde GitHub.
     Retorna (lista_de_archivos, mensaje_de_error_o_exito)
@@ -787,6 +791,11 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
                     content_bytes = base64.b64decode(file_info.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
                     data.append({"name": f['name'], "content": content, "folder": path.lower()})
+                    if status_cb:
+                        try:
+                            status_cb(path, txt_files_found, total_files)
+                        except Exception:
+                            pass
                 except Exception as e:
                     return [], f"Error al decodificar el archivo {f['name']}: {str(e)}"
             elif file_resp.status_code != 200:
@@ -811,6 +820,7 @@ def force_regenerate_dataframe(
     repo_url: str,
     custom_path: str = "",
     progress_cb: callable | None = None,
+    status_cb: callable | None = None,
 ) -> tuple[pd.DataFrame, List[dict], str, str]:
     """
     Fuerza la regeneración del DataFrame ignorando el caché.
@@ -821,7 +831,9 @@ def force_regenerate_dataframe(
     # Cargar archivos desde cero (ignorando caché)
     if progress_cb:
         progress_cb(0.05)
-    files, folder_used, error_msg = load_transcriptions_from_github(repo_url, custom_path)
+    files, folder_used, error_msg = load_transcriptions_from_github(
+        repo_url, custom_path, status_cb=status_cb
+    )
     if not files:
         return pd.DataFrame(), [], "", error_msg if error_msg else "No se encontraron archivos"
     
@@ -846,6 +858,7 @@ def load_transcriptions_from_github_optimized(
     repo_url: str,
     custom_path: str = "",
     progress_cb: callable | None = None,
+    status_cb: callable | None = None,
 ) -> tuple[pd.DataFrame, List[dict], str, str, str]:
     """
     Carga transcripciones de forma optimizada:
@@ -877,7 +890,9 @@ def load_transcriptions_from_github_optimized(
     
     if df_cached.empty or load_error:
         # No hay DataFrame guardado o error al cargar, cargar desde cero
-        files, folder_used, error_msg = load_transcriptions_from_github(repo_url, custom_path)
+        files, folder_used, error_msg = load_transcriptions_from_github(
+            repo_url, custom_path, status_cb=status_cb
+        )
         if not files:
             if progress_cb:
                 progress_cb(1.0)
@@ -951,7 +966,9 @@ def load_transcriptions_from_github_optimized(
         return df_cached, files_light, folder_used, "cached", ""
     
     # Hay cambios, regenerar DataFrame
-    files, folder_used, error_msg = load_transcriptions_from_github(repo_url, custom_path)
+    files, folder_used, error_msg = load_transcriptions_from_github(
+        repo_url, custom_path, status_cb=status_cb
+    )
     if not files:
         # Si falla cargar archivos, usar DataFrame cacheado como fallback
         return df_cached, [], "transcripciones", "error", f"Error al cargar archivos actualizados: {error_msg}"
@@ -979,7 +996,11 @@ def load_transcriptions_from_github_optimized(
     return df, files, folder_used, "regenerated", ""
 
 
-def load_transcriptions_from_github(repo_url: str, custom_path: str = "") -> tuple[List[dict], str, str]:
+def load_transcriptions_from_github(
+    repo_url: str,
+    custom_path: str = "",
+    status_cb: callable | None = None,
+) -> tuple[List[dict], str, str]:
     """
     Intenta cargar archivos desde una ruta personalizada, 'transcripciones' o 'spoti'.
     Si no se especifica ruta personalizada, carga archivos de AMBAS carpetas (transcripciones y spoti).
@@ -990,7 +1011,7 @@ def load_transcriptions_from_github(repo_url: str, custom_path: str = "") -> tup
     
     # Si se especifica una ruta personalizada, intentar solo con esa
     if custom_path:
-        files, error_msg = read_txt_files_from_github(repo_url, path=custom_path)
+        files, error_msg = read_txt_files_from_github(repo_url, path=custom_path, status_cb=status_cb)
         if files:
             return files, custom_path, ""
         elif error_msg and "404" not in error_msg:
@@ -999,7 +1020,7 @@ def load_transcriptions_from_github(repo_url: str, custom_path: str = "") -> tup
         # Si no encuentra nada, continuar para intentar las carpetas por defecto
     
     # Cargar archivos de "transcripciones"
-    files_trans, error_msg_trans = read_txt_files_from_github(repo_url, path="transcripciones")
+    files_trans, error_msg_trans = read_txt_files_from_github(repo_url, path="transcripciones", status_cb=status_cb)
     if files_trans:
         all_files.extend(files_trans)
         folders_found.append("transcripciones")
@@ -1009,7 +1030,7 @@ def load_transcriptions_from_github(repo_url: str, custom_path: str = "") -> tup
     
     # Cargar archivos de "spoti" (intentar también con mayúscula por si acaso)
     for spoti_variant in ["spoti", "Spoti", "SPOTI"]:
-        files_spoti, error_msg_spoti = read_txt_files_from_github(repo_url, path=spoti_variant)
+        files_spoti, error_msg_spoti = read_txt_files_from_github(repo_url, path=spoti_variant, status_cb=status_cb)
         if files_spoti:
             all_files.extend(files_spoti)
             folders_found.append(spoti_variant.lower())  # Normalizar a minúsculas
@@ -1900,13 +1921,27 @@ if gh_url:
             start_time = time.time()
             with st.spinner("Cargando transcripciones desde GitHub (optimizado)..."):
                 progress_bar = st.progress(0)
+                status_placeholder = st.empty()
+
                 def _df_load_progress(p: float):
                     try:
                         progress_bar.progress(int(max(0, min(1, p)) * 100))
                     except Exception:
                         pass
+
+                def _df_load_status(folder: str, current: int, total: int):
+                    try:
+                        status_placeholder.text(
+                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub..."
+                        )
+                    except Exception:
+                        pass
+
                 df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
-                    gh_url, custom_path.strip() if custom_path else "", progress_cb=_df_load_progress
+                    gh_url,
+                    custom_path.strip() if custom_path else "",
+                    progress_cb=_df_load_progress,
+                    status_cb=_df_load_status,
                 )
                 progress_bar.empty()
                 elapsed_time = time.time() - start_time
@@ -1953,13 +1988,27 @@ with button_col1:
             _load_dataframe_from_github.clear()
             with st.spinner("Recargando transcripciones desde GitHub (optimizado)..."):
                 progress_bar = st.progress(0)
+                status_placeholder = st.empty()
+
                 def _df_reload_progress(p: float):
                     try:
                         progress_bar.progress(int(max(0, min(1, p)) * 100))
                     except Exception:
                         pass
+
+                def _df_reload_status(folder: str, current: int, total: int):
+                    try:
+                        status_placeholder.text(
+                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub..."
+                        )
+                    except Exception:
+                        pass
+
                 df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
-                    gh_url, custom_path.strip() if custom_path else "", progress_cb=_df_reload_progress
+                    gh_url,
+                    custom_path.strip() if custom_path else "",
+                    progress_cb=_df_reload_progress,
+                    status_cb=_df_reload_status,
                 )
                 progress_bar.empty()
                 if not df.empty:
@@ -1993,13 +2042,27 @@ with button_col2:
                 _load_dataframe_from_github.clear()
                 with st.spinner("🔄 Forzando regeneración completa del DataFrame (esto puede tardar varios minutos con 300+ archivos)..."):
                     progress_bar = st.progress(0)
+                    status_placeholder = st.empty()
+
                     def _df_regen_progress(p: float):
                         try:
                             progress_bar.progress(int(max(0, min(1, p)) * 100))
                         except Exception:
                             pass
+
+                    def _df_regen_status(folder: str, current: int, total: int):
+                        try:
+                            status_placeholder.text(
+                                f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub..."
+                            )
+                        except Exception:
+                            pass
+
                     df, files, folder_used, error_msg = force_regenerate_dataframe(
-                        gh_url, custom_path.strip() if custom_path else "", progress_cb=_df_regen_progress
+                        gh_url,
+                        custom_path.strip() if custom_path else "",
+                        progress_cb=_df_regen_progress,
+                        status_cb=_df_regen_status,
                     )
                     progress_bar.empty()
                     if not df.empty:
