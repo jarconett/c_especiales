@@ -2007,6 +2007,8 @@ with button_col1:
             st.session_state['gh_url'] = gh_url  # Guardar URL
             # Limpiar caché de Streamlit para forzar recarga desde GitHub
             _load_dataframe_from_github.clear()
+            import time
+            start_time = time.time()
             with st.spinner("Recargando transcripciones desde GitHub (optimizado)..."):
                 progress_bar = st.progress(0)
                 status_placeholder = st.empty()
@@ -2080,6 +2082,8 @@ with button_col2:
                 st.session_state['gh_url'] = gh_url  # Guardar URL
                 # Limpiar caché de Streamlit antes de regenerar
                 _load_dataframe_from_github.clear()
+                import time
+                start_time = time.time()
                 with st.spinner("🔄 Forzando regeneración completa del DataFrame (esto puede tardar varios minutos con 300+ archivos)..."):
                     progress_bar = st.progress(0)
                     status_placeholder = st.empty()
@@ -2130,8 +2134,11 @@ with button_col2:
                         # Limpiar caché después de regenerar para que use el nuevo DataFrame
                         _load_dataframe_from_github.clear()
                         if error_msg:
+                            # Regeneración correcta pero fallo al guardar en GitHub
                             st.warning(f"{error_msg}")
-                        st.success(f"✅ DataFrame regenerado manualmente: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                            st.info(f"El DataFrame se ha regenerado correctamente en esta sesión: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos), pero no se pudo guardar en GitHub.")
+                        else:
+                            st.success(f"✅ DataFrame regenerado manualmente: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
                     else:
                         if error_msg:
                             st.error(f"❌ {error_msg}")
