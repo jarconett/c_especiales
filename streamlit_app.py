@@ -807,7 +807,11 @@ def read_txt_files_from_github(repo_url: str, path: str = "transcripciones") -> 
     return data, ""
 
 
-def force_regenerate_dataframe(repo_url: str, custom_path: str = "") -> tuple[pd.DataFrame, List[dict], str, str]:
+def force_regenerate_dataframe(
+    repo_url: str,
+    custom_path: str = "",
+    progress_cb: callable | None = None,
+) -> tuple[pd.DataFrame, List[dict], str, str]:
     """
     Fuerza la regeneración del DataFrame ignorando el caché.
     Carga todos los archivos desde cero, construye el DataFrame y lo guarda en GitHub.
@@ -815,14 +819,20 @@ def force_regenerate_dataframe(repo_url: str, custom_path: str = "") -> tuple[pd
     Retorna (DataFrame, files, folder_used, error_message)
     """
     # Cargar archivos desde cero (ignorando caché)
+    if progress_cb:
+        progress_cb(0.05)
     files, folder_used, error_msg = load_transcriptions_from_github(repo_url, custom_path)
     if not files:
         return pd.DataFrame(), [], "", error_msg if error_msg else "No se encontraron archivos"
     
     # Construir DataFrame
+    if progress_cb:
+        progress_cb(0.3)
     df = build_transcriptions_dataframe(files)
     
     # Guardar en GitHub para próximas cargas
+    if progress_cb:
+        progress_cb(0.6)
     file_index = _get_file_sha(files)
     save_success, save_error = _save_dataframe_to_github(repo_url, df, file_index)
     if not save_success:
@@ -832,7 +842,11 @@ def force_regenerate_dataframe(repo_url: str, custom_path: str = "") -> tuple[pd
     return df, files, folder_used, error_msg if not save_success else ""
 
 
-def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = "") -> tuple[pd.DataFrame, List[dict], str, str, str]:
+def load_transcriptions_from_github_optimized(
+    repo_url: str,
+    custom_path: str = "",
+    progress_cb: callable | None = None,
+) -> tuple[pd.DataFrame, List[dict], str, str, str]:
     """
     Carga transcripciones de forma optimizada:
     1. PRIMERO: Verifica si ya está en session_state (más rápido, persiste en la sesión)
@@ -846,12 +860,16 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
     """
     # OPTIMIZACIÓN: Primero verificar session_state (más rápido, persiste en la sesión)
     cache_key = f"df_cache_{repo_url}"
+    if progress_cb:
+        progress_cb(0.1)
     if cache_key in st.session_state:
         df_cached = st.session_state[cache_key].get('df')
         cached_index = st.session_state[cache_key].get('index', {})
         files_light = st.session_state[cache_key].get('files', [])
         folder_used = st.session_state[cache_key].get('folder', 'transcripciones')
         if df_cached is not None and not df_cached.empty:
+            if progress_cb:
+                progress_cb(1.0)
             return df_cached, files_light, folder_used, "session_cached", ""
     
     # Si no está en session_state, intentar cargar desde GitHub (usará caché de Streamlit si está disponible)
@@ -861,6 +879,8 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
         # No hay DataFrame guardado o error al cargar, cargar desde cero
         files, folder_used, error_msg = load_transcriptions_from_github(repo_url, custom_path)
         if not files:
+            if progress_cb:
+                progress_cb(1.0)
             return pd.DataFrame(), [], "", "error", error_msg
         
         # Construir DataFrame
@@ -881,7 +901,8 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
             'files': files,
             'folder': folder_used
         }
-        
+        if progress_cb:
+            progress_cb(1.0)
         return df, files, folder_used, "first_load", ""
     
     # Hay DataFrame guardado
@@ -925,7 +946,8 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
             'files': files_light,
             'folder': folder_used
         }
-        
+        if progress_cb:
+            progress_cb(1.0)
         return df_cached, files_light, folder_used, "cached", ""
     
     # Hay cambios, regenerar DataFrame
@@ -952,7 +974,8 @@ def load_transcriptions_from_github_optimized(repo_url: str, custom_path: str = 
         'files': files,
         'folder': folder_used
     }
-    
+    if progress_cb:
+        progress_cb(1.0)
     return df, files, folder_used, "regenerated", ""
 
 
@@ -1876,9 +1899,16 @@ if gh_url:
             import time
             start_time = time.time()
             with st.spinner("Cargando transcripciones desde GitHub (optimizado)..."):
+                progress_bar = st.progress(0)
+                def _df_load_progress(p: float):
+                    try:
+                        progress_bar.progress(int(max(0, min(1, p)) * 100))
+                    except Exception:
+                        pass
                 df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
-                    gh_url, custom_path.strip() if custom_path else ""
+                    gh_url, custom_path.strip() if custom_path else "", progress_cb=_df_load_progress
                 )
+                progress_bar.empty()
                 elapsed_time = time.time() - start_time
                 if not df.empty:
                     st.session_state['trans_files'] = files
@@ -1922,9 +1952,16 @@ with button_col1:
             # Limpiar caché de Streamlit para forzar recarga desde GitHub
             _load_dataframe_from_github.clear()
             with st.spinner("Recargando transcripciones desde GitHub (optimizado)..."):
+                progress_bar = st.progress(0)
+                def _df_reload_progress(p: float):
+                    try:
+                        progress_bar.progress(int(max(0, min(1, p)) * 100))
+                    except Exception:
+                        pass
                 df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
-                    gh_url, custom_path.strip() if custom_path else ""
+                    gh_url, custom_path.strip() if custom_path else "", progress_cb=_df_reload_progress
                 )
+                progress_bar.empty()
                 if not df.empty:
                     st.session_state['trans_files'] = files
                     st.session_state['trans_df'] = df
@@ -1955,9 +1992,16 @@ with button_col2:
                 # Limpiar caché de Streamlit antes de regenerar
                 _load_dataframe_from_github.clear()
                 with st.spinner("🔄 Forzando regeneración completa del DataFrame (esto puede tardar varios minutos con 300+ archivos)..."):
+                    progress_bar = st.progress(0)
+                    def _df_regen_progress(p: float):
+                        try:
+                            progress_bar.progress(int(max(0, min(1, p)) * 100))
+                        except Exception:
+                            pass
                     df, files, folder_used, error_msg = force_regenerate_dataframe(
-                        gh_url, custom_path.strip() if custom_path else ""
+                        gh_url, custom_path.strip() if custom_path else "", progress_cb=_df_regen_progress
                     )
+                    progress_bar.empty()
                     if not df.empty:
                         st.session_state['trans_files'] = files
                         st.session_state['trans_df'] = df
