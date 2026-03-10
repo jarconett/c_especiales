@@ -621,7 +621,7 @@ def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str
 def read_txt_files_from_github(
     repo_url: str,
     path: str = "transcripciones",
-    status_cb: callable | None = None,
+    status_cb=None,
 ) -> tuple[List[dict], str]:
     """
     Lee archivos .txt desde GitHub.
@@ -819,8 +819,8 @@ def read_txt_files_from_github(
 def force_regenerate_dataframe(
     repo_url: str,
     custom_path: str = "",
-    progress_cb: callable | None = None,
-    status_cb: callable | None = None,
+    progress_cb=None,
+    status_cb=None,
 ) -> tuple[pd.DataFrame, List[dict], str, str]:
     """
     Fuerza la regeneración del DataFrame ignorando el caché.
@@ -857,8 +857,8 @@ def force_regenerate_dataframe(
 def load_transcriptions_from_github_optimized(
     repo_url: str,
     custom_path: str = "",
-    progress_cb: callable | None = None,
-    status_cb: callable | None = None,
+    progress_cb=None,
+    status_cb=None,
 ) -> tuple[pd.DataFrame, List[dict], str, str, str]:
     """
     Carga transcripciones de forma optimizada:
@@ -999,7 +999,7 @@ def load_transcriptions_from_github_optimized(
 def load_transcriptions_from_github(
     repo_url: str,
     custom_path: str = "",
-    status_cb: callable | None = None,
+    status_cb=None,
 ) -> tuple[List[dict], str, str]:
     """
     Intenta cargar archivos desde una ruta personalizada, 'transcripciones' o 'spoti'.
