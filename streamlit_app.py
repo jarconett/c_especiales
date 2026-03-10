@@ -6,6 +6,9 @@ from rapidfuzz import fuzz
 import hashlib
 from datetime import datetime, timedelta, timezone
 
+# Candado global para regeneración de DataFrame (compartido entre sesiones en el mismo servidor)
+DF_REGEN_LOCK = False
+
 # Función helper para obtener la zona horaria de España
 def get_spain_timezone():
     """Retorna la zona horaria de España (Europe/Madrid)."""
@@ -1943,27 +1946,34 @@ with button_col1:
 
 with button_col2:
     if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
-        if gh_url:
-            st.session_state['gh_url'] = gh_url  # Guardar URL
-            # Limpiar caché de Streamlit antes de regenerar
-            _load_dataframe_from_github.clear()
-            with st.spinner("🔄 Forzando regeneración completa del DataFrame (esto puede tardar varios minutos con 300+ archivos)..."):
-                df, files, folder_used, error_msg = force_regenerate_dataframe(
-                    gh_url, custom_path.strip() if custom_path else ""
-                )
-                if not df.empty:
-                    st.session_state['trans_files'] = files
-                    st.session_state['trans_df'] = df
-                    # Limpiar caché después de regenerar para que use el nuevo DataFrame
-                    _load_dataframe_from_github.clear()
-                    if error_msg:
-                        st.warning(f"{error_msg}")
-                    st.success(f"✅ DataFrame regenerado manualmente: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
-                else:
-                    if error_msg:
-                        st.error(f"❌ {error_msg}")
+        global DF_REGEN_LOCK
+        if DF_REGEN_LOCK:
+            st.info("🔒 Ya se está regenerando el DataFrame en otra sesión. Espera a que termine antes de lanzar otra regeneración.")
+        elif gh_url:
+            DF_REGEN_LOCK = True
+            try:
+                st.session_state['gh_url'] = gh_url  # Guardar URL
+                # Limpiar caché de Streamlit antes de regenerar
+                _load_dataframe_from_github.clear()
+                with st.spinner("🔄 Forzando regeneración completa del DataFrame (esto puede tardar varios minutos con 300+ archivos)..."):
+                    df, files, folder_used, error_msg = force_regenerate_dataframe(
+                        gh_url, custom_path.strip() if custom_path else ""
+                    )
+                    if not df.empty:
+                        st.session_state['trans_files'] = files
+                        st.session_state['trans_df'] = df
+                        # Limpiar caché después de regenerar para que use el nuevo DataFrame
+                        _load_dataframe_from_github.clear()
+                        if error_msg:
+                            st.warning(f"{error_msg}")
+                        st.success(f"✅ DataFrame regenerado manualmente: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
                     else:
-                        st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+                        if error_msg:
+                            st.error(f"❌ {error_msg}")
+                        else:
+                            st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+            finally:
+                DF_REGEN_LOCK = False
         else:
             st.error("Por favor, ingresa una URL de repositorio GitHub válida")
 
