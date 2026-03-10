@@ -549,7 +549,8 @@ def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.D
                 'download_time': df_download_time,
                 'decode_time': decode_time,
                 'pickle_time': pickle_time,
-                'total_time': total_time
+                'total_time': total_time,
+                'files': len(file_index) if isinstance(file_index, dict) else 0,
             }
         
         return df, file_index, ""
@@ -1931,8 +1932,28 @@ if gh_url:
 
                 def _df_load_status(folder: str, current: int, total: int):
                     try:
+                        # ETA basado en tiempo actual y, si existe, tiempos históricos
+                        elapsed = time.time() - start_time
+                        eta_str = ""
+                        if current > 0 and total:
+                            avg_cur = elapsed / current
+                            base_avg = None
+                            prev = st.session_state.get("df_load_times")
+                            if prev and prev.get("files"):
+                                try:
+                                    base_avg = prev.get("total_time", 0) / max(1, prev["files"])
+                                except Exception:
+                                    base_avg = None
+                            avg = (0.5 * base_avg + 0.5 * avg_cur) if base_avg else avg_cur
+                            remaining = max(0.0, avg * (total - current))
+                            if remaining >= 60:
+                                m = int(remaining // 60)
+                                s = int(remaining % 60)
+                                eta_str = f" | ETA ~ {m}m {s}s"
+                            else:
+                                eta_str = f" | ETA ~ {int(remaining)}s"
                         status_placeholder.text(
-                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub..."
+                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub...{eta_str}"
                         )
                     except Exception:
                         pass
@@ -1998,8 +2019,27 @@ with button_col1:
 
                 def _df_reload_status(folder: str, current: int, total: int):
                     try:
+                        elapsed = time.time() - start_time
+                        eta_str = ""
+                        if current > 0 and total:
+                            avg_cur = elapsed / current
+                            base_avg = None
+                            prev = st.session_state.get("df_load_times")
+                            if prev and prev.get("files"):
+                                try:
+                                    base_avg = prev.get("total_time", 0) / max(1, prev["files"])
+                                except Exception:
+                                    base_avg = None
+                            avg = (0.5 * base_avg + 0.5 * avg_cur) if base_avg else avg_cur
+                            remaining = max(0.0, avg * (total - current))
+                            if remaining >= 60:
+                                m = int(remaining // 60)
+                                s = int(remaining % 60)
+                                eta_str = f" | ETA ~ {m}m {s}s"
+                            else:
+                                eta_str = f" | ETA ~ {int(remaining)}s"
                         status_placeholder.text(
-                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub..."
+                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub...{eta_str}"
                         )
                     except Exception:
                         pass
@@ -2052,8 +2092,27 @@ with button_col2:
 
                     def _df_regen_status(folder: str, current: int, total: int):
                         try:
+                            elapsed = time.time() - start_time
+                            eta_str = ""
+                            if current > 0 and total:
+                                avg_cur = elapsed / current
+                                base_avg = None
+                                prev = st.session_state.get("df_load_times")
+                                if prev and prev.get("files"):
+                                    try:
+                                        base_avg = prev.get("total_time", 0) / max(1, prev["files"])
+                                    except Exception:
+                                        base_avg = None
+                                avg = (0.5 * base_avg + 0.5 * avg_cur) if base_avg else avg_cur
+                                remaining = max(0.0, avg * (total - current))
+                                if remaining >= 60:
+                                    m = int(remaining // 60)
+                                    s = int(remaining % 60)
+                                    eta_str = f" | ETA ~ {m}m {s}s"
+                                else:
+                                    eta_str = f" | ETA ~ {int(remaining)}s"
                             status_placeholder.text(
-                                f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub..."
+                                f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub...{eta_str}"
                             )
                         except Exception:
                             pass
