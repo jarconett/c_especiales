@@ -1946,7 +1946,6 @@ with button_col1:
 
 with button_col2:
     if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
-        global DF_REGEN_LOCK
         if DF_REGEN_LOCK:
             st.info("🔒 Ya se está regenerando el DataFrame en otra sesión. Espera a que termine antes de lanzar otra regeneración.")
         elif gh_url:
