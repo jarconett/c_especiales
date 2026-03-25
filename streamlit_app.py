@@ -685,6 +685,7 @@ def read_txt_files_from_github(
     repo_url: str,
     path: str = "transcripciones",
     status_cb=None,
+    time_window_key: str | None = None,
 ) -> tuple[List[dict], str]:
     """
     Lee archivos .txt desde GitHub.
@@ -702,7 +703,8 @@ def read_txt_files_from_github(
         owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
     
     # Verificar caché (válido por 30 minutos para reducir peticiones)
-    cache_key = f"github_cache_{owner_repo}_{path}"
+    # Incluir time_window_key para evitar mezclar resultados filtrados/no filtrados.
+    cache_key = f"github_cache_{owner_repo}_{path}_{(time_window_key or 'all')}"
     if cache_key in st.session_state:
         cached_data, cached_time = st.session_state[cache_key]
         if datetime.now() - cached_time < timedelta(minutes=30):
@@ -818,10 +820,31 @@ def read_txt_files_from_github(
     
     data = []
     txt_files_found = 0
-    total_files = sum(1 for f in items if f.get("type") == "file" and f.get("name","").lower().endswith(".txt"))
+    txt_items = [
+        f for f in items
+        if f.get("type") == "file" and f.get("name", "").lower().endswith(".txt")
+    ]
+
+    # Si hay filtro temporal, precomputar qué ficheros entran para que el contador
+    # (y por tanto el ETA) refleje el total resultante.
+    allowed_names = None
+    total_files = len(txt_items)
+    if time_window_key:
+        try:
+            meta_list = [{"name": f["name"], "folder": path} for f in txt_items]
+            kept_metas, _stats = filter_files_by_time_window(meta_list, time_window_key)
+            allowed_names = set(m.get("name") for m in kept_metas)
+            total_files = len(allowed_names)
+        except Exception:
+            # Si algo falla al filtrar, caemos al comportamiento anterior (sin filtrar)
+            allowed_names = None
+            total_files = len(txt_items)
     
     for idx, f in enumerate(items):
         if f.get("type") == "file" and f.get("name","").lower().endswith(".txt"):
+            if allowed_names is not None and f.get("name") not in allowed_names:
+                # Saltar archivos que no entran en el filtro temporal
+                continue
             txt_files_found += 1
             file_api = f"https://api.github.com/repos/{owner_repo}/contents/{path}/{f['name']}"
             
@@ -870,6 +893,8 @@ def read_txt_files_from_github(
                 st.warning(error_msg)
     
     if txt_files_found == 0:
+        if time_window_key:
+            return [], f"No se encontraron archivos .txt en la carpeta '{path}' para el rango seleccionado."
         return [], f"No se encontraron archivos .txt en la carpeta '{path}'."
     
     # Guardar en caché los resultados exitosos
@@ -896,14 +921,13 @@ def force_regenerate_dataframe(
     if progress_cb:
         progress_cb(0.05)
     files, folder_used, error_msg = load_transcriptions_from_github(
-        repo_url, custom_path, status_cb=status_cb
+        repo_url,
+        custom_path,
+        status_cb=status_cb,
+        time_window_key=time_window,
     )
     if not files:
         return pd.DataFrame(), [], "", error_msg if error_msg else "No se encontraron archivos"
-
-    # Filtrar por ventana temporal
-    files_filtered, filter_stats = filter_files_by_time_window(files, time_window)
-    files = files_filtered
     
     # Construir DataFrame
     if progress_cb:
@@ -918,9 +942,23 @@ def force_regenerate_dataframe(
     if not save_success:
         # No es crítico si falla guardar, pero mostrar advertencia
         error_msg = f"⚠️ DataFrame regenerado pero no se pudo guardar en GitHub: {save_error}"
-    
-    if filter_stats and filter_stats.get("window_label"):
-        folder_used = f"{folder_used} | {filter_stats['window_label']}"
+
+    # Mostrar en el nombre de carpeta usada la ventana temporal aplicada
+    _label = ""
+    if time_window == "last_1m":
+        _label = "último mes"
+    elif time_window == "last_2m":
+        _label = "últimos 2 meses"
+    elif time_window == "last_6m":
+        _label = "últimos 6 meses"
+    else:
+        try:
+            start, end = _season_date_range_for(datetime.now())
+            _label = f"temporada {start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')}"
+        except Exception:
+            _label = "última temporada"
+    if _label:
+        folder_used = f"{folder_used} | {_label}"
     return df, files, folder_used, error_msg if not save_success else ""
 
 
@@ -1070,6 +1108,7 @@ def load_transcriptions_from_github(
     repo_url: str,
     custom_path: str = "",
     status_cb=None,
+    time_window_key: str | None = None,
 ) -> tuple[List[dict], str, str]:
     """
     Intenta cargar archivos desde una ruta personalizada, 'transcripciones' o 'spoti'.
@@ -1081,7 +1120,12 @@ def load_transcriptions_from_github(
     
     # Si se especifica una ruta personalizada, intentar solo con esa
     if custom_path:
-        files, error_msg = read_txt_files_from_github(repo_url, path=custom_path, status_cb=status_cb)
+        files, error_msg = read_txt_files_from_github(
+            repo_url,
+            path=custom_path,
+            status_cb=status_cb,
+            time_window_key=time_window_key,
+        )
         if files:
             return files, custom_path, ""
         elif error_msg and "404" not in error_msg:
@@ -1090,7 +1134,12 @@ def load_transcriptions_from_github(
         # Si no encuentra nada, continuar para intentar las carpetas por defecto
     
     # Cargar archivos de "transcripciones"
-    files_trans, error_msg_trans = read_txt_files_from_github(repo_url, path="transcripciones", status_cb=status_cb)
+    files_trans, error_msg_trans = read_txt_files_from_github(
+        repo_url,
+        path="transcripciones",
+        status_cb=status_cb,
+        time_window_key=time_window_key,
+    )
     if files_trans:
         all_files.extend(files_trans)
         folders_found.append("transcripciones")
@@ -1100,7 +1149,12 @@ def load_transcriptions_from_github(
     
     # Cargar archivos de "spoti" (intentar también con mayúscula por si acaso)
     for spoti_variant in ["spoti", "Spoti", "SPOTI"]:
-        files_spoti, error_msg_spoti = read_txt_files_from_github(repo_url, path=spoti_variant, status_cb=status_cb)
+        files_spoti, error_msg_spoti = read_txt_files_from_github(
+            repo_url,
+            path=spoti_variant,
+            status_cb=status_cb,
+            time_window_key=time_window_key,
+        )
         if files_spoti:
             all_files.extend(files_spoti)
             folders_found.append(spoti_variant.lower())  # Normalizar a minúsculas
