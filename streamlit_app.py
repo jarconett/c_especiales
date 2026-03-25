@@ -1,5 +1,5 @@
 import streamlit as st
-import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html
+import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html, json
 import subprocess
 from typing import List
 from rapidfuzz import fuzz
@@ -463,9 +463,71 @@ def _save_dataframe_to_github(repo_url: str, df: pd.DataFrame, file_index: dict,
             return False, f"Error al guardar índice: {index_put.status_code} - {index_put.text[:200]}"
         
         return True, ""
-        
     except Exception as e:
-        return False, f"Error al guardar: {str(e)}"
+        return False, f"Error al guardar DataFrame: {str(e)}"
+
+
+def _load_settings_from_github(repo_url: str, path: str = "data/settings.json") -> tuple[dict, str]:
+    """Carga settings (JSON) desde GitHub. Retorna (settings_dict, error_msg)."""
+    owner, repo = _parse_repo_url(repo_url)
+    if not owner or not repo:
+        return {}, "URL de repositorio no válida"
+
+    headers, token = _get_github_headers()
+    if not token:
+        return {}, "Se requiere GITHUB_TOKEN para leer settings"
+
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    resp = requests.get(api_url, headers=headers)
+    if resp.status_code == 404:
+        return {}, ""
+    if resp.status_code != 200:
+        return {}, f"Error al cargar settings: {resp.status_code} - {resp.text[:200]}"
+
+    try:
+        data = resp.json()
+        content_b64 = data.get("content", "")
+        raw = base64.b64decode(content_b64).decode("utf-8", errors="ignore")
+        settings = json.loads(raw) if raw.strip() else {}
+        return settings if isinstance(settings, dict) else {}, ""
+    except Exception as e:
+        return {}, f"Error al parsear settings: {e}"
+
+
+def _save_settings_to_github(repo_url: str, settings: dict, path: str = "data/settings.json") -> tuple[bool, str]:
+    """Guarda settings (JSON) en GitHub. Retorna (éxito, error_msg)."""
+    owner, repo = _parse_repo_url(repo_url)
+    if not owner or not repo:
+        return False, "URL de repositorio no válida"
+
+    headers, token = _get_github_headers()
+    if not token:
+        return False, "Se requiere GITHUB_TOKEN para guardar settings"
+
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    # Obtener SHA si existe
+    sha = None
+    existing = requests.get(api_url, headers=headers)
+    if existing.status_code == 200:
+        try:
+            sha = existing.json().get("sha")
+        except Exception:
+            sha = None
+
+    raw = json.dumps(settings or {}, ensure_ascii=False, indent=2)
+    content_b64 = base64.b64encode(raw.encode("utf-8")).decode("utf-8")
+
+    payload = {
+        "message": "Update app settings",
+        "content": content_b64,
+    }
+    if sha:
+        payload["sha"] = sha
+
+    put = requests.put(api_url, headers=headers, json=payload)
+    if put.status_code in (200, 201):
+        return True, ""
+    return False, f"Error al guardar settings: {put.status_code} - {put.text[:200]}"
 
 
 @st.cache_data(ttl=72000, max_entries=1, show_spinner=False)  # Cachear por 20 horas, máximo 1 entrada
@@ -820,6 +882,7 @@ def read_txt_files_from_github(
 def force_regenerate_dataframe(
     repo_url: str,
     custom_path: str = "",
+    time_window: str = "season",
     progress_cb=None,
     status_cb=None,
 ) -> tuple[pd.DataFrame, List[dict], str, str]:
@@ -837,6 +900,10 @@ def force_regenerate_dataframe(
     )
     if not files:
         return pd.DataFrame(), [], "", error_msg if error_msg else "No se encontraron archivos"
+
+    # Filtrar por ventana temporal
+    files_filtered, filter_stats = filter_files_by_time_window(files, time_window)
+    files = files_filtered
     
     # Construir DataFrame
     if progress_cb:
@@ -852,6 +919,8 @@ def force_regenerate_dataframe(
         # No es crítico si falla guardar, pero mostrar advertencia
         error_msg = f"⚠️ DataFrame regenerado pero no se pudo guardar en GitHub: {save_error}"
     
+    if filter_stats and filter_stats.get("window_label"):
+        folder_used = f"{folder_used} | {filter_stats['window_label']}"
     return df, files, folder_used, error_msg if not save_success else ""
 
 
@@ -1400,6 +1469,84 @@ def extract_date_from_filename(filename: str, folder: str = "") -> tuple:
     return None, None, False
 
 
+def _season_date_range_for(dt: datetime) -> tuple[datetime, datetime]:
+    """
+    Temporadas: del 1 de septiembre al 15 de julio (del año siguiente).
+    Si dt está entre enero y 15/jul -> temporada empezó el 1/sep del año anterior.
+    Si dt está entre 16/jul y 31/ago -> consideramos la última temporada acabada.
+    Si dt está entre 1/sep y 31/dic -> temporada empezó el 1/sep del mismo año.
+    """
+    y = dt.year
+    if dt.month >= 9:
+        start = datetime(y, 9, 1)
+        end = datetime(y + 1, 7, 15, 23, 59, 59)
+        return start, end
+    if dt.month < 7 or (dt.month == 7 and dt.day <= 15):
+        start = datetime(y - 1, 9, 1)
+        end = datetime(y, 7, 15, 23, 59, 59)
+        return start, end
+    # 16/jul - 31/ago -> última temporada acabada (sep del año anterior - 15/jul del año actual)
+    start = datetime(y - 1, 9, 1)
+    end = datetime(y, 7, 15, 23, 59, 59)
+    return start, end
+
+
+def filter_files_by_time_window(files: List[dict], window_key: str) -> tuple[List[dict], dict]:
+    """
+    Filtra archivos según ventana temporal basada en fecha en el nombre.
+    - window_key: "last_1m" | "last_2m" | "last_6m" | "season"
+    Retorna (files_filtrados, stats)
+    """
+    import time as _time
+    now = datetime.now()
+
+    if window_key == "last_1m":
+        start = now - timedelta(days=30)
+        end = now
+        window_label = "último mes"
+    elif window_key == "last_2m":
+        start = now - timedelta(days=60)
+        end = now
+        window_label = "últimos 2 meses"
+    elif window_key == "last_6m":
+        start = now - timedelta(days=180)
+        end = now
+        window_label = "últimos 6 meses"
+    else:
+        start, end = _season_date_range_for(now)
+        window_label = f"temporada {start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')}"
+
+    kept: List[dict] = []
+    dropped = 0
+    no_date = 0
+    for f in files:
+        filename = f.get("name", "")
+        folder = f.get("folder", "")
+        date_obj, _, _ = extract_date_from_filename(filename, folder)
+        if not date_obj:
+            # Si no podemos extraer fecha, lo mantenemos (evita perder archivos atípicos)
+            kept.append(f)
+            no_date += 1
+            continue
+        if start <= date_obj <= end:
+            kept.append(f)
+        else:
+            dropped += 1
+
+    stats = {
+        "window_key": window_key,
+        "window_label": window_label,
+        "start": start,
+        "end": end,
+        "kept": len(kept),
+        "dropped": dropped,
+        "no_date_kept": no_date,
+        "total_in": len(files),
+        "ts": _time.time(),
+    }
+    return kept, stats
+
+
 def get_files_by_date(files: List[dict]) -> dict:
     """
     Agrupa los archivos por fecha.
@@ -1923,6 +2070,21 @@ with path_col:
 # Guardar URL del repositorio en session_state para uso posterior
 if gh_url:
     st.session_state['gh_url'] = gh_url
+    # Cargar preferencia persistente del filtro temporal (una vez por sesión)
+    if "df_time_window_radio" not in st.session_state:
+        settings, _settings_err = _load_settings_from_github(gh_url)
+        saved_key = ""
+        try:
+            saved_key = str((settings or {}).get("df_time_window", "")).strip()
+        except Exception:
+            saved_key = ""
+        _key_to_label = {
+            "last_1m": "Último mes",
+            "last_2m": "Últimos 2 meses",
+            "last_6m": "Últimos 6 meses",
+            "season": "Última temporada",
+        }
+        st.session_state["df_time_window_radio"] = _key_to_label.get(saved_key, "Última temporada")
 
 # Carga automática al inicio si no hay datos (optimizada)
 # PRIORIDAD: 1) session_state (trans_df/trans_files), 2) caché adicional (df_cache), 3) caché Streamlit, 4) GitHub
@@ -2106,6 +2268,21 @@ with button_col1:
             st.error("Por favor, ingresa una URL de repositorio GitHub válida")
 
 with button_col2:
+    time_window_label = st.radio(
+        "Incluir archivos en el DataFrame (regeneración):",
+        options=["Último mes", "Últimos 2 meses", "Últimos 6 meses", "Última temporada"],
+        index=3,
+        key="df_time_window_radio",
+        help="Filtra qué archivos de 'transcripciones' y 'spoti' se incluyen al regenerar el DataFrame.",
+    )
+    _time_window_map = {
+        "Último mes": "last_1m",
+        "Últimos 2 meses": "last_2m",
+        "Últimos 6 meses": "last_6m",
+        "Última temporada": "season",
+    }
+    time_window_key = _time_window_map.get(time_window_label, "season")
+
     if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
         if DF_REGEN_LOCK:
             st.info("🔒 Ya se está regenerando el DataFrame en otra sesión. Espera a que termine antes de lanzar otra regeneración.")
@@ -2113,6 +2290,11 @@ with button_col2:
             DF_REGEN_LOCK = True
             try:
                 st.session_state['gh_url'] = gh_url  # Guardar URL
+                # Persistir preferencia del rango temporal en GitHub (entre sesiones)
+                try:
+                    _save_settings_to_github(gh_url, {"df_time_window": time_window_key})
+                except Exception:
+                    pass
                 # Limpiar caché de Streamlit antes de regenerar
                 _load_dataframe_from_github.clear()
                 import time
@@ -2157,6 +2339,7 @@ with button_col2:
                     df, files, folder_used, error_msg = force_regenerate_dataframe(
                         gh_url,
                         custom_path.strip() if custom_path else "",
+                        time_window=time_window_key,
                         progress_cb=_df_regen_progress,
                         status_cb=_df_regen_status,
                     )
