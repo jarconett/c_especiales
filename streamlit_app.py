@@ -1200,6 +1200,39 @@ def search_transcriptions(
     if results.empty:
         return pd.DataFrame(columns=["file", "speaker", "text", "block_index", "match_preview", "folder"])
 
+    # --- Ranking: ordenar por número de palabras de la consulta que aparecen en el bloque ---
+    # El objetivo es que, para búsquedas tipo "frase", salgan primero los bloques que
+    # contienen más palabras de la consulta (después de normalización y del filtro de stop-words).
+    if not use_regex:
+        all_terms = [t for t in query_norm.split() if t]
+        if use_stop_words:
+            terms = [t for t in all_terms if t not in _STOP_WORDS]
+            if not terms:
+                terms = all_terms
+        else:
+            terms = all_terms
+        query_terms_set = set(terms)
+
+        if query_terms_set:
+            # match_word_count: cuántos términos de la consulta aparecen como palabras en el bloque
+            # exact_phrase_match: si el bloque contiene la frase completa (substring) como "bonus" de orden
+            results = results.copy()
+            if "text_norm" in results.columns:
+                def _count_query_terms_in_text_norm(t: str) -> int:
+                    words = set(str(t).split())
+                    return sum(1 for term in query_terms_set if term in words)
+
+                results["match_word_count"] = results["text_norm"].apply(_count_query_terms_in_text_norm)
+                results["exact_phrase_match"] = results["text_norm"].str.contains(
+                    re.escape(query_norm), na=False
+                )
+                results["exact_phrase_match"] = results["exact_phrase_match"].astype(int)
+                results = results.sort_values(
+                    by=["exact_phrase_match", "match_word_count", "block_index"],
+                    ascending=[False, False, True],
+                    kind="mergesort",
+                )
+
     # --- Crear vista previa con resaltado (snippet largo para usar mejor el ancho disponible) ---
     _preview_len = 480  # caracteres a mostrar en vista previa
     _context_before = 60
