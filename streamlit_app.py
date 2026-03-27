@@ -473,10 +473,8 @@ def _load_settings_from_github(repo_url: str, path: str = "data/settings.json") 
     if not owner or not repo:
         return {}, "URL de repositorio no válida"
 
-    headers, token = _get_github_headers()
-    if not token:
-        return {}, "Se requiere GITHUB_TOKEN para leer settings"
-
+    # Lectura pública: no exigir token (repos públicos; límite 60 req/h sin auth).
+    headers, _token = _get_github_headers()
     api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
     resp = requests.get(api_url, headers=headers)
     if resp.status_code == 404:
@@ -495,7 +493,7 @@ def _load_settings_from_github(repo_url: str, path: str = "data/settings.json") 
 
 
 def _save_settings_to_github(repo_url: str, settings: dict, path: str = "data/settings.json") -> tuple[bool, str]:
-    """Guarda settings (JSON) en GitHub. Retorna (éxito, error_msg)."""
+    """Guarda settings (JSON) en GitHub. Retorna (éxito, error_msg). Fusiona con el JSON existente."""
     owner, repo = _parse_repo_url(repo_url)
     if not owner or not repo:
         return False, "URL de repositorio no válida"
@@ -503,6 +501,10 @@ def _save_settings_to_github(repo_url: str, settings: dict, path: str = "data/se
     headers, token = _get_github_headers()
     if not token:
         return False, "Se requiere GITHUB_TOKEN para guardar settings"
+
+    existing, _ = _load_settings_from_github(repo_url, path)
+    merged = dict(existing or {})
+    merged.update(settings or {})
 
     api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
     # Obtener SHA si existe
@@ -514,7 +516,7 @@ def _save_settings_to_github(repo_url: str, settings: dict, path: str = "data/se
         except Exception:
             sha = None
 
-    raw = json.dumps(settings or {}, ensure_ascii=False, indent=2)
+    raw = json.dumps(merged, ensure_ascii=False, indent=2)
     content_b64 = base64.b64encode(raw.encode("utf-8")).decode("utf-8")
 
     payload = {
@@ -975,6 +977,7 @@ def load_transcriptions_from_github_optimized(
     custom_path: str = "",
     progress_cb=None,
     status_cb=None,
+    time_window_key: str | None = None,
 ) -> tuple[pd.DataFrame, List[dict], str, str, str]:
     """
     Carga transcripciones de forma optimizada:
@@ -987,6 +990,20 @@ def load_transcriptions_from_github_optimized(
     Retorna (DataFrame, files, folder_used, status_message, error_message)
     status_message puede ser: "cached", "regenerated", "first_load", "error", "session_cached"
     """
+    tw = (time_window_key or "season").strip()
+    if tw not in ("last_1m", "last_2m", "last_6m", "season"):
+        tw = "season"
+
+    def _finish(df, files, folder_used, status, err=""):
+        """Aplica la ventana temporal guardada al resultado (pickle puede traer todo el histórico)."""
+        if df is None or df.empty:
+            return df, files, folder_used, status, err
+        df2, files2, stw = apply_time_window_to_transcription_data(df, files, tw)
+        lab = stw.get("window_label", "")
+        if lab:
+            folder_used = f"{folder_used} | vista: {lab}"
+        return df2, files2, folder_used, status, err
+
     # OPTIMIZACIÓN: Primero verificar session_state (más rápido, persiste en la sesión)
     cache_key = f"df_cache_{repo_url}"
     if progress_cb:
@@ -999,7 +1016,7 @@ def load_transcriptions_from_github_optimized(
         if df_cached is not None and not df_cached.empty:
             if progress_cb:
                 progress_cb(1.0)
-            return df_cached, files_light, folder_used, "session_cached", ""
+            return _finish(df_cached, files_light, folder_used, "session_cached", "")
     
     # Si no está en session_state, intentar cargar desde GitHub (usará caché de Streamlit si está disponible)
     df_cached, cached_index, load_error = _load_dataframe_from_github(repo_url)
@@ -1034,7 +1051,7 @@ def load_transcriptions_from_github_optimized(
         }
         if progress_cb:
             progress_cb(1.0)
-        return df, files, folder_used, "first_load", ""
+        return _finish(df, files, folder_used, "first_load", "")
     
     # Hay DataFrame guardado
     # OPTIMIZACIÓN: Saltar la detección de cambios por defecto para carga rápida
@@ -1079,7 +1096,7 @@ def load_transcriptions_from_github_optimized(
         }
         if progress_cb:
             progress_cb(1.0)
-        return df_cached, files_light, folder_used, "cached", ""
+        return _finish(df_cached, files_light, folder_used, "cached", "")
     
     # Hay cambios, regenerar DataFrame
     files, folder_used, error_msg = load_transcriptions_from_github(
@@ -1087,7 +1104,13 @@ def load_transcriptions_from_github_optimized(
     )
     if not files:
         # Si falla cargar archivos, usar DataFrame cacheado como fallback
-        return df_cached, [], "transcripciones", "error", f"Error al cargar archivos actualizados: {error_msg}"
+        return _finish(
+            df_cached,
+            [],
+            "transcripciones",
+            "error",
+            f"Error al cargar archivos actualizados: {error_msg}",
+        )
     
     # Construir nuevo DataFrame
     df = build_transcriptions_dataframe(files)
@@ -1109,7 +1132,7 @@ def load_transcriptions_from_github_optimized(
     }
     if progress_cb:
         progress_cb(1.0)
-    return df, files, folder_used, "regenerated", ""
+    return _finish(df, files, folder_used, "regenerated", "")
 
 
 def load_transcriptions_from_github(
@@ -1608,6 +1631,60 @@ def filter_files_by_time_window(files: List[dict], window_key: str) -> tuple[Lis
         "ts": _time.time(),
     }
     return kept, stats
+
+
+def apply_time_window_to_transcription_data(
+    df: pd.DataFrame,
+    files: List[dict],
+    window_key: str,
+) -> tuple[pd.DataFrame, List[dict], dict]:
+    """
+    Recorta DataFrame y lista de archivos según la misma ventana temporal que la regeneración.
+    Útil cuando el pickle en GitHub contiene toda la historia pero el usuario eligió p. ej. últimos 2 meses.
+    """
+    if df is None or df.empty:
+        return df if df is not None else pd.DataFrame(), files or [], {}
+    wk = (window_key or "season").strip()
+    if wk not in ("last_1m", "last_2m", "last_6m", "season"):
+        wk = "season"
+    if files:
+        meta = [{"name": f.get("name", ""), "folder": f.get("folder", "")} for f in files]
+    else:
+        if "folder" in df.columns:
+            u = df[["file", "folder"]].drop_duplicates()
+            meta = [{"name": str(r["file"]), "folder": str(r["folder"])} for _, r in u.iterrows()]
+        else:
+            u = df["file"].drop_duplicates()
+            meta = [{"name": str(n), "folder": "transcripciones"} for n in u]
+    kept, stats = filter_files_by_time_window(meta, wk)
+    allowed = {(str(m["name"]), str(m.get("folder", "")).lower()) for m in kept}
+    fc = df["file"].astype(str)
+    if "folder" in df.columns:
+        fl = df["folder"].astype(str).str.lower()
+    else:
+        fl = pd.Series(["transcripciones"] * len(df), index=df.index)
+    mask = pd.Series(
+        [(str(fn), str(fd).lower()) in allowed for fn, fd in zip(fc, fl)],
+        index=df.index,
+    )
+    df_f = df.loc[mask].copy()
+    if files:
+        files_f = [
+            f
+            for f in files
+            if (str(f.get("name", "")), str(f.get("folder", "")).lower()) in allowed
+        ]
+    else:
+        files_f = [
+            {
+                "name": m["name"],
+                "folder": str(m.get("folder", "transcripciones")).lower(),
+                "content": "",
+                "sha": "",
+            }
+            for m in kept
+        ]
+    return df_f, files_f, stats
 
 
 def get_files_with_invalid_dates(files: List[dict]) -> List[dict]:
@@ -2148,21 +2225,31 @@ with path_col:
 # Guardar URL del repositorio en session_state para uso posterior
 if gh_url:
     st.session_state['gh_url'] = gh_url
-    # Cargar preferencia persistente del filtro temporal (una vez por sesión)
-    if "df_time_window_radio" not in st.session_state:
+    # Si cambia el repo, volver a leer preferencias (radio + ventana aplicada al cargar)
+    _last_repo_tw = st.session_state.get("_last_gh_url_for_tw")
+    if _last_repo_tw != gh_url:
+        st.session_state["_last_gh_url_for_tw"] = gh_url
+        for _k in ("df_time_window_saved_key", "df_time_window_radio"):
+            st.session_state.pop(_k, None)
+    # Cargar preferencia persistente del filtro temporal (una vez por sesión y repo)
+    if "df_time_window_saved_key" not in st.session_state:
         settings, _settings_err = _load_settings_from_github(gh_url)
         saved_key = ""
         try:
             saved_key = str((settings or {}).get("df_time_window", "")).strip()
         except Exception:
             saved_key = ""
+        if saved_key not in ("last_1m", "last_2m", "last_6m", "season"):
+            saved_key = "season"
+        st.session_state["df_time_window_saved_key"] = saved_key
         _key_to_label = {
             "last_1m": "Último mes",
             "last_2m": "Últimos 2 meses",
             "last_6m": "Últimos 6 meses",
             "season": "Última temporada",
         }
-        st.session_state["df_time_window_radio"] = _key_to_label.get(saved_key, "Última temporada")
+        if "df_time_window_radio" not in st.session_state:
+            st.session_state["df_time_window_radio"] = _key_to_label.get(saved_key, "Última temporada")
 
 # Carga automática al inicio si no hay datos (optimizada)
 # PRIORIDAD: 1) session_state (trans_df/trans_files), 2) caché adicional (df_cache), 3) caché Streamlit, 4) GitHub
@@ -2182,10 +2269,18 @@ if gh_url:
         folder_cached = cache_data.get('folder', 'transcripciones')
         if df_cached is not None and not df_cached.empty:
             # Restaurar desde caché adicional (muy rápido, sin descargar)
-            st.session_state['trans_df'] = df_cached
-            st.session_state['trans_files'] = files_cached
+            _tw = st.session_state.get("df_time_window_saved_key", "season")
+            df_view, files_view, _stw = apply_time_window_to_transcription_data(
+                df_cached, files_cached, _tw
+            )
+            st.session_state['trans_df'] = df_view
+            st.session_state['trans_files'] = files_view
             st.session_state['dataframe_loaded'] = True
-            st.success(f"⚡⚡ Carga instantánea desde caché de sesión: {len(df_cached)} bloques desde carpeta '{folder_cached}' ({len(files_cached)} archivos)")
+            _vista = _stw.get("window_label", "")
+            _extra = f" | vista: {_vista}" if _vista else ""
+            st.success(
+                f"⚡⚡ Carga instantánea desde caché de sesión: {len(df_view)} bloques desde carpeta '{folder_cached}' ({len(files_view)} archivos){_extra}"
+            )
     # Nivel 3 y 4: Cargar desde caché de Streamlit o GitHub
     elif 'trans_files' not in st.session_state or 'trans_df' not in st.session_state:
         # Verificar si ya se está cargando para evitar ejecuciones múltiples
@@ -2236,6 +2331,7 @@ if gh_url:
                     custom_path.strip() if custom_path else "",
                     progress_cb=_df_load_progress,
                     status_cb=_df_load_status,
+                    time_window_key=st.session_state.get("df_time_window_saved_key", "season"),
                 )
                 progress_bar.empty()
                 elapsed_time = time.time() - start_time
@@ -2324,6 +2420,7 @@ with button_col1:
                     custom_path.strip() if custom_path else "",
                     progress_cb=_df_reload_progress,
                     status_cb=_df_reload_status,
+                    time_window_key=st.session_state.get("df_time_window_saved_key", "season"),
                 )
                 progress_bar.empty()
                 if not df.empty:
@@ -2349,9 +2446,8 @@ with button_col2:
     time_window_label = st.radio(
         "Incluir archivos en el DataFrame (regeneración):",
         options=["Último mes", "Últimos 2 meses", "Últimos 6 meses", "Última temporada"],
-        index=3,
         key="df_time_window_radio",
-        help="Filtra qué archivos de 'transcripciones' y 'spoti' se incluyen al regenerar el DataFrame.",
+        help="Filtra qué archivos de 'transcripciones' y 'spoti' se incluyen al regenerar el DataFrame. La preferencia se guarda en data/settings.json y se aplica al cargar el pickle desde GitHub.",
     )
     _time_window_map = {
         "Último mes": "last_1m",
@@ -2368,6 +2464,8 @@ with button_col2:
             DF_REGEN_LOCK = True
             try:
                 st.session_state['gh_url'] = gh_url  # Guardar URL
+                # Misma ventana para cargas posteriores en esta sesión (aunque falle el guardado en GitHub)
+                st.session_state["df_time_window_saved_key"] = time_window_key
                 # Persistir preferencia del rango temporal en GitHub (entre sesiones)
                 try:
                     _save_settings_to_github(gh_url, {"df_time_window": time_window_key})
