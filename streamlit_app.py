@@ -532,6 +532,28 @@ def _save_settings_to_github(repo_url: str, settings: dict, path: str = "data/se
     return False, f"Error al guardar settings: {put.status_code} - {put.text[:200]}"
 
 
+_DF_TIME_WINDOW_LABEL_TO_KEY = {
+    "Último mes": "last_1m",
+    "Últimos 2 meses": "last_2m",
+    "Últimos 6 meses": "last_6m",
+    "Última temporada": "season",
+}
+
+
+def _on_df_time_window_radio_change():
+    """Cada cambio en el radio guarda la preferencia en GitHub (data/settings.json) y en session_state."""
+    gh_url = st.session_state.get("gh_url")
+    if not gh_url:
+        return
+    label = st.session_state.get("df_time_window_radio")
+    tw_key = _DF_TIME_WINDOW_LABEL_TO_KEY.get(label, "season")
+    st.session_state["df_time_window_saved_key"] = tw_key
+    try:
+        _save_settings_to_github(gh_url, {"df_time_window": tw_key})
+    except Exception:
+        pass
+
+
 @st.cache_data(ttl=72000, max_entries=1, show_spinner=False)  # Cachear por 20 horas, máximo 1 entrada
 def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.DataFrame, dict, str]:
     """
@@ -2445,17 +2467,12 @@ with button_col1:
 with button_col2:
     time_window_label = st.radio(
         "Incluir archivos en el DataFrame (regeneración):",
-        options=["Último mes", "Últimos 2 meses", "Últimos 6 meses", "Última temporada"],
+        options=list(_DF_TIME_WINDOW_LABEL_TO_KEY.keys()),
         key="df_time_window_radio",
-        help="Filtra qué archivos de 'transcripciones' y 'spoti' se incluyen al regenerar el DataFrame. La preferencia se guarda en data/settings.json y se aplica al cargar el pickle desde GitHub.",
+        on_change=_on_df_time_window_radio_change,
+        help="Filtra qué archivos de 'transcripciones' y 'spoti' se incluyen al regenerar el DataFrame. Cada cambio se guarda en data/settings.json en GitHub para la próxima carga.",
     )
-    _time_window_map = {
-        "Último mes": "last_1m",
-        "Últimos 2 meses": "last_2m",
-        "Últimos 6 meses": "last_6m",
-        "Última temporada": "season",
-    }
-    time_window_key = _time_window_map.get(time_window_label, "season")
+    time_window_key = _DF_TIME_WINDOW_LABEL_TO_KEY.get(time_window_label, "season")
 
     if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
         if DF_REGEN_LOCK:
