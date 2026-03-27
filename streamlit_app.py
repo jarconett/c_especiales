@@ -928,6 +928,12 @@ def force_regenerate_dataframe(
     )
     if not files:
         return pd.DataFrame(), [], "", error_msg if error_msg else "No se encontraron archivos"
+
+    # Doble garantía: aplicar de nuevo el filtro temporal antes de construir el DataFrame.
+    # Esto evita que cualquier desviación durante la lectura acabe metiendo archivos fuera de rango.
+    files, filter_stats = filter_files_by_time_window(files, time_window)
+    if not files:
+        return pd.DataFrame(), [], "", "No quedaron archivos dentro del rango temporal seleccionado."
     
     # Construir DataFrame
     if progress_cb:
@@ -959,6 +965,8 @@ def force_regenerate_dataframe(
             _label = "última temporada"
     if _label:
         folder_used = f"{folder_used} | {_label}"
+    if filter_stats:
+        folder_used = f"{folder_used} | filtrados: {filter_stats.get('kept', 0)}/{filter_stats.get('total_in', 0)}"
     return df, files, folder_used, error_msg if not save_success else ""
 
 
@@ -1483,7 +1491,9 @@ def extract_date_from_filename(filename: str, folder: str = "") -> tuple:
     """
     try:
         # Remover extensión .txt si existe
-        name_without_ext = filename.replace('.txt', '').strip()
+        name_without_ext = str(filename).replace('.txt', '').strip()
+        # Limpieza defensiva: quita caracteres invisibles y espacios al inicio
+        name_without_ext = name_without_ext.lstrip("\ufeff").strip()
         es_spoti = folder.lower() == "spoti" or "spoti" in filename.lower()
         
         # Buscar patrón de fecha al inicio: DDMMYYYY (8 dígitos)
@@ -1578,8 +1588,7 @@ def filter_files_by_time_window(files: List[dict], window_key: str) -> tuple[Lis
         folder = f.get("folder", "")
         date_obj, _, _ = extract_date_from_filename(filename, folder)
         if not date_obj:
-            # Si no podemos extraer fecha, lo mantenemos (evita perder archivos atípicos)
-            kept.append(f)
+            # Filtrado estricto por fecha: si no se puede extraer fecha, no entra.
             no_date += 1
             continue
         if start <= date_obj <= end:
@@ -1599,6 +1608,21 @@ def filter_files_by_time_window(files: List[dict], window_key: str) -> tuple[Lis
         "ts": _time.time(),
     }
     return kept, stats
+
+
+def get_files_with_invalid_dates(files: List[dict]) -> List[dict]:
+    """
+    Devuelve listado de archivos cuyo nombre no permite extraer una fecha válida.
+    Cada item: {"folder": ..., "name": ...}
+    """
+    invalid = []
+    for f in files:
+        name = f.get("name", "")
+        folder = f.get("folder", "")
+        date_obj, _, _ = extract_date_from_filename(name, folder)
+        if not date_obj:
+            invalid.append({"folder": str(folder), "name": str(name)})
+    return invalid
 
 
 def get_files_by_date(files: List[dict]) -> dict:
@@ -2479,8 +2503,26 @@ if 'trans_df' in st.session_state:
 
 st.markdown("---")
 
+# --- UI: Validación de nombres de archivos ---
+st.header("4) Validar nombres de archivo")
+if 'trans_files' in st.session_state and st.session_state['trans_files']:
+    if st.button("🧪 Validar fechas en nombres", key="validate_file_dates"):
+        files_loaded = st.session_state.get('trans_files', [])
+        invalid_files = get_files_with_invalid_dates(files_loaded)
+        if not invalid_files:
+            st.success("✅ Todos los archivos cargados tienen fecha válida al inicio del nombre (DDMMYYYY).")
+        else:
+            st.warning(f"⚠️ Se detectaron {len(invalid_files)} archivos con nombre inválido para fecha.")
+            invalid_df = pd.DataFrame(invalid_files)
+            invalid_df = invalid_df.rename(columns={"folder": "Carpeta", "name": "Archivo"})
+            st.dataframe(invalid_df, use_container_width=True)
+else:
+    st.info("ℹ️ Primero carga/regenera el DataFrame para validar nombres de archivo.")
+
+st.markdown("---")
+
 # --- UI: Calendario de archivos ---
-st.header("4) 📅 Calendario de transcripciones")
+st.header("5) 📅 Calendario de transcripciones")
 if 'trans_files' in st.session_state and st.session_state['trans_files']:
     files = st.session_state['trans_files']
     files_by_date = get_files_by_date(files)
