@@ -297,11 +297,13 @@ if not st.session_state['authenticated']:
     show_login_page()
     st.stop()
 
-# Sesiones antiguas sin token en URL: añadirlo una vez para sobrevivir reinicios de Cloud
+# Sesiones antiguas sin token en URL: intentar añadirlo una vez (evita bucles de safe_rerun si la URL no se sincroniza)
 if st.session_state.get("authenticated") and not _query_params_auth_get():
-    persist_auth_token_to_url_after_login()
-    if _query_params_auth_get():
-        safe_rerun()
+    if not st.session_state.get("_did_write_auth_query"):
+        persist_auth_token_to_url_after_login()
+        st.session_state["_did_write_auth_query"] = True
+        if _query_params_auth_get():
+            safe_rerun()
 
 # -------------------------------
 # ESTILOS DE LA APP (solo se muestra si está autenticado)
@@ -321,6 +323,7 @@ with col_logout:
         # Limpiar otros estados relacionados si es necesario
         if 'password_entered' in st.session_state:
             del st.session_state['password_entered']
+        st.session_state.pop("_did_write_auth_query", None)
         _query_params_auth_del()
         safe_rerun()
 
@@ -2520,41 +2523,6 @@ with col1:
             except Exception as e:
                 st.error(f"❌ Error al procesar el audio: {type(e).__name__}: {str(e)}")
                 st.caption("Si el archivo es largo o muy pesado, prueba con uno más corto o hazlo en local con la app.")
-    if st.session_state.get("audio_zip_path"):
-        st.markdown("### Descargar fragmentos (ZIP)")
-        zpath = st.session_state["audio_zip_path"]
-        zdn = st.session_state.get("audio_zip_download_name", "fragmentos.zip")
-        if os.path.isfile(zpath):
-            # Bytes síncronos: data=callable (diferido) en Cloud puede fallar con
-            # «Deferred file … not found» al hacer clic (referencia temporal perdida).
-            with open(zpath, "rb") as zf:
-                zip_bytes = zf.read()
-            try:
-                st.download_button(
-                    "Descargar ZIP con todos los fragmentos",
-                    data=zip_bytes,
-                    file_name=zdn,
-                    key="download_audio_zip_file",
-                    mime="application/zip",
-                    on_click="ignore",
-                )
-            except TypeError:
-                st.download_button(
-                    "Descargar ZIP con todos los fragmentos",
-                    data=zip_bytes,
-                    file_name=zdn,
-                    key="download_audio_zip_file",
-                    mime="application/zip",
-                )
-        else:
-            st.warning("El archivo temporal ya no está disponible. Vuelve a procesar el audio.")
-        if st.button("Quitar resultados", key="clear_audio_zip_file"):
-            clear_audio_download_state()
-            safe_rerun()
-    elif "audio_segments" in st.session_state:
-        st.markdown("### Descargar fragmentos (formato antiguo)")
-        for seg in st.session_state["audio_segments"]:
-            st.download_button(f"Descargar {seg['name']}", data=seg["bytes"], file_name=seg["name"])
 
 with col2:
     st.markdown("""
@@ -2565,6 +2533,34 @@ with col2:
     - [Transcripción automática](https://turboscribe.ai/)
     - [ffmpeg](https://www.gyan.dev/ffmpeg/builds)
     """, unsafe_allow_html=True)
+
+# Descarga fuera de col1: evita conflictos de orden de widgets con file_uploader/botón procesar
+if st.session_state.get("audio_zip_path"):
+    st.markdown("### Descargar fragmentos (ZIP)")
+    zpath = st.session_state["audio_zip_path"]
+    zdn = st.session_state.get("audio_zip_download_name", "fragmentos.zip")
+    if os.path.isfile(zpath):
+        try:
+            with open(zpath, "rb") as zf:
+                zip_bytes = zf.read()
+            st.download_button(
+                "Descargar ZIP con todos los fragmentos",
+                data=zip_bytes,
+                file_name=zdn,
+                key="download_audio_zip_file",
+                mime="application/zip",
+            )
+        except Exception as e:
+            st.error(f"No se pudo preparar la descarga: {type(e).__name__}: {e}")
+    else:
+        st.warning("El archivo temporal ya no está disponible. Vuelve a procesar el audio.")
+    if st.button("Quitar resultados", key="clear_audio_zip_file"):
+        clear_audio_download_state()
+        safe_rerun()
+elif "audio_segments" in st.session_state:
+    st.markdown("### Descargar fragmentos (formato antiguo)")
+    for seg in st.session_state["audio_segments"]:
+        st.download_button(f"Descargar {seg['name']}", data=seg["bytes"], file_name=seg["name"])
 
 st.markdown("---")
 
