@@ -2396,36 +2396,27 @@ with col1:
         zpath = st.session_state["audio_zip_path"]
         zdn = st.session_state.get("audio_zip_download_name", "fragmentos.zip")
         if os.path.isfile(zpath):
-            def _zip_download_bytes():
-                with open(zpath, "rb") as zf:
-                    return zf.read()
-
+            # Bytes síncronos: data=callable (diferido) en Cloud puede fallar con
+            # «Deferred file … not found» al hacer clic (referencia temporal perdida).
+            with open(zpath, "rb") as zf:
+                zip_bytes = zf.read()
             try:
                 st.download_button(
                     "Descargar ZIP con todos los fragmentos",
-                    data=_zip_download_bytes,
+                    data=zip_bytes,
                     file_name=zdn,
                     key="download_audio_zip_file",
                     mime="application/zip",
                     on_click="ignore",
                 )
             except TypeError:
-                try:
-                    st.download_button(
-                        "Descargar ZIP con todos los fragmentos",
-                        data=_zip_download_bytes,
-                        file_name=zdn,
-                        key="download_audio_zip_file",
-                        mime="application/zip",
-                    )
-                except TypeError:
-                    with open(zpath, "rb") as zf:
-                        st.download_button(
-                            "Descargar ZIP con todos los fragmentos",
-                            data=zf.read(),
-                            file_name=zdn,
-                            key="download_audio_zip_file",
-                        )
+                st.download_button(
+                    "Descargar ZIP con todos los fragmentos",
+                    data=zip_bytes,
+                    file_name=zdn,
+                    key="download_audio_zip_file",
+                    mime="application/zip",
+                )
         else:
             st.warning("El archivo temporal ya no está disponible. Vuelve a procesar el audio.")
         if st.button("Quitar resultados", key="clear_audio_zip_file"):
