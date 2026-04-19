@@ -2368,6 +2368,11 @@ col1, col2 = st.columns([2,1])
 with col1:
     uploaded = st.file_uploader("Sube un archivo de audio", type=["m4a","mp3","wav","ogg","flac"])
     segment_minutes = st.number_input("Duración de cada fragmento (minutos)", min_value=1, max_value=180, value=30)
+    st.caption(
+        "No hay cierre de sesión automático en esta app. Si pasan muchos minutos sin interactuar, "
+        "Streamlit Cloud puede abrir una sesión nueva (websocket inactivo, reinicio del contenedor, etc.): "
+        "se pierde el login y el archivo del subidor; conviene procesar enseguida tras subir."
+    )
     if uploaded and st.button("Procesar audio y generar fragmentos"):
         audio_bytes = uploaded.read()
         with st.spinner("Cortando audio... (puede tardar 1–2 min)"):
