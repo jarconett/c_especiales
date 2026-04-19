@@ -1,5 +1,5 @@
 import streamlit as st
-import io, math, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html, json, zipfile
+import io, math, gc, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html, json, zipfile
 import subprocess
 from typing import List
 from rapidfuzz import fuzz
@@ -162,17 +162,8 @@ def show_login_page():
                 st.session_state['password_entered'] = password
                 # Mostrar mensaje de éxito
                 st.success("✅ Contraseña correcta!")
-                # Usar JavaScript para recargar la página de forma segura
-                st.markdown(
-                    """
-                    <script>
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 500);
-                    </script>
-                    """,
-                    unsafe_allow_html=True
-                )
+                # st.rerun() mantiene la sesión de Streamlit; window.location.reload() puede perderla (vuelve al login).
+                st.rerun()
             else:
                 st.error("❌ Contraseña incorrecta. Intenta nuevamente.")
         
@@ -294,22 +285,27 @@ def split_audio(audio_bytes: bytes, filename: str, segment_seconds: int = 1800):
                 pass
 
 
-def pack_audio_segments_zip(segments: List[dict], original_filename: str) -> tuple[bytes, str]:
-    """Empaqueta todos los fragmentos en un único ZIP (menos presión de memoria que N download_button con binarios)."""
-    buf = io.BytesIO()
+def write_audio_segments_zip_file(segments: List[dict], original_filename: str) -> tuple[str, str]:
+    """
+    Escribe el ZIP directamente en disco (no en session_state).
+    Evita duplicar el ZIP en memoria en cada rerun de Streamlit, que suele provocar reinicios en Cloud.
+    """
     base = (original_filename or "audio").rsplit(".", 1)[0]
     base = re.sub(r"[^\w\-]", "_", base)[:80] or "audio"
     zip_name = f"{base}_fragmentos.zip"
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    tmp_path = tmp.name
+    tmp.close()
+    with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for seg in segments:
             zf.writestr(seg["name"], seg["bytes"])
-    return buf.getvalue(), zip_name
+    return tmp_path, zip_name
 
 
 def clear_audio_download_state():
     """Quita resultados de corte de audio de session_state y borra ZIP temporal si existe."""
     st.session_state.pop("audio_segments", None)
-    st.session_state.pop("audio_zip", None)
+    st.session_state.pop("audio_zip", None)  # legado: ya no se usa ZIP en memoria
     p = st.session_state.pop("audio_zip_path", None)
     st.session_state.pop("audio_zip_download_name", None)
     if p and isinstance(p, str) and os.path.isfile(p):
@@ -2134,23 +2130,11 @@ with col1:
                 segments = split_audio(audio_bytes, uploaded.name, segment_seconds=int(segment_minutes*60))
                 del audio_bytes
                 clear_audio_download_state()
-                zip_bytes, zip_name = pack_audio_segments_zip(segments, uploaded.name)
+                zpath, zip_name = write_audio_segments_zip_file(segments, uploaded.name)
                 del segments
-                # Guardar muchos binarios grandes en session_state provoca OOM en Streamlit Cloud y reinicio (pérdida de login)
-                _max_zip_in_session = 28 * 1024 * 1024
-                if len(zip_bytes) > _max_zip_in_session:
-                    zf = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-                    try:
-                        zf.write(zip_bytes)
-                        zf.flush()
-                        zpath = zf.name
-                    finally:
-                        zf.close()
-                    del zip_bytes
-                    st.session_state["audio_zip_path"] = zpath
-                    st.session_state["audio_zip_download_name"] = zip_name
-                else:
-                    st.session_state["audio_zip"] = {"name": zip_name, "bytes": zip_bytes}
+                gc.collect()
+                st.session_state["audio_zip_path"] = zpath
+                st.session_state["audio_zip_download_name"] = zip_name
                 st.success(
                     "Listo: descarga el ZIP con todos los fragmentos. "
                     "Tras descargar, pulsa «Quitar resultados» para liberar memoria en el servidor."
@@ -2175,18 +2159,6 @@ with col1:
         else:
             st.warning("El archivo temporal ya no está disponible. Vuelve a procesar el audio.")
         if st.button("Quitar resultados", key="clear_audio_zip_file"):
-            clear_audio_download_state()
-            st.rerun()
-    elif "audio_zip" in st.session_state:
-        st.markdown("### Descargar fragmentos (ZIP)")
-        z = st.session_state["audio_zip"]
-        st.download_button(
-            "Descargar ZIP con todos los fragmentos",
-            data=z["bytes"],
-            file_name=z["name"],
-            key="download_audio_zip_mem",
-        )
-        if st.button("Quitar resultados", key="clear_audio_zip_mem"):
             clear_audio_download_state()
             st.rerun()
     elif "audio_segments" in st.session_state:
