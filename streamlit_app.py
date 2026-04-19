@@ -727,6 +727,11 @@ def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str
     return has_changes, new_file_index
 
 
+# Timeouts GitHub: sin ellos la app puede quedar colgada indefinidamente (p. ej. en "archivo 5 de 142")
+_GITHUB_TIMEOUT_DIR = (15, 45)
+_GITHUB_TIMEOUT_FILE = (20, 180)
+
+
 def read_txt_files_from_github(
     repo_url: str,
     path: str = "transcripciones",
@@ -738,6 +743,7 @@ def read_txt_files_from_github(
     Retorna (lista_de_archivos, mensaje_de_error_o_exito)
     """
     import re as _re
+    import time as _time
     from datetime import datetime, timedelta
     
     if repo_url.count("/") == 1 and "/" in repo_url:
@@ -758,7 +764,10 @@ def read_txt_files_from_github(
     
     headers, token = _get_github_headers()
     api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
-    resp = requests.get(api_url, headers=headers)
+    try:
+        resp = requests.get(api_url, headers=headers, timeout=_GITHUB_TIMEOUT_DIR)
+    except requests.exceptions.RequestException as e:
+        return [], f"Error de red al listar la carpeta '{path}': {e}"
     
     # Verificar si es un error de rate limit
     if resp.status_code == 403 or resp.status_code == 429:
@@ -815,7 +824,10 @@ def read_txt_files_from_github(
         # Intentar con formato Bearer si el formato token falló
         if token and headers.get("Authorization", "").startswith("token "):
             headers["Authorization"] = f"Bearer {token}"
-            resp = requests.get(api_url, headers=headers)
+            try:
+                resp = requests.get(api_url, headers=headers, timeout=_GITHUB_TIMEOUT_DIR)
+            except requests.exceptions.RequestException as e:
+                return [], f"Error de red al listar la carpeta '{path}': {e}"
             if resp.status_code == 200:
                 # Si funciona con Bearer, continuar
                 pass
@@ -886,21 +898,39 @@ def read_txt_files_from_github(
             allowed_names = None
             total_files = len(txt_items)
     
-    for idx, f in enumerate(items):
+    req_num = 0
+    for f in items:
         if f.get("type") == "file" and f.get("name","").lower().endswith(".txt"):
             if allowed_names is not None and f.get("name") not in allowed_names:
                 # Saltar archivos que no entran en el filtro temporal
                 continue
-            txt_files_found += 1
             file_api = f"https://api.github.com/repos/{owner_repo}/contents/{path}/{f['name']}"
-            
-            # Agregar un pequeño delay entre peticiones si hay muchos archivos (para evitar rate limit)
-            # Solo delay si hay más de 10 archivos y no es el primero
-            if total_files > 10 and idx > 0:
-                import time
-                time.sleep(0.1)  # 100ms de delay entre peticiones
-            
-            file_resp = requests.get(file_api, headers=headers)
+            req_num += 1
+            # Pequeño delay entre descargas reales (no usar índice de la lista API completa)
+            if total_files > 10 and req_num > 1:
+                _time.sleep(0.12)
+
+            try:
+                file_resp = requests.get(file_api, headers=headers, timeout=_GITHUB_TIMEOUT_FILE)
+            except requests.exceptions.Timeout:
+                st.warning(f"⏱️ Timeout al leer {f['name']} (>{_GITHUB_TIMEOUT_FILE[1]}s). Se omite y se continúa.")
+                continue
+            except requests.exceptions.RequestException as e:
+                st.warning(f"⚠️ Error de red al leer {f['name']}: {e}. Se omite y se continúa.")
+                continue
+
+            if file_resp.status_code == 429:
+                try:
+                    wait_s = int(float(file_resp.headers.get("Retry-After", "2")))
+                except (ValueError, TypeError):
+                    wait_s = 2
+                wait_s = max(1, min(wait_s, 120))
+                _time.sleep(wait_s)
+                try:
+                    file_resp = requests.get(file_api, headers=headers, timeout=_GITHUB_TIMEOUT_FILE)
+                except requests.exceptions.RequestException:
+                    st.warning(f"⚠️ No se pudo reintentar {f['name']} tras 429. Se omite.")
+                    continue
             
             # Verificar rate limit en peticiones de archivos individuales
             if file_resp.status_code == 403 or file_resp.status_code == 429:
@@ -923,6 +953,7 @@ def read_txt_files_from_github(
                     content_bytes = base64.b64decode(file_info.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
                     data.append({"name": f['name'], "content": content, "folder": path.lower()})
+                    txt_files_found += 1
                     if status_cb:
                         try:
                             status_cb(path, txt_files_found, total_files)
@@ -933,9 +964,8 @@ def read_txt_files_from_github(
             elif file_resp.status_code != 200:
                 # Si hay un error al obtener un archivo, continuar con los demás pero registrar el error
                 error_msg = f"Error al obtener {f['name']}: código {file_resp.status_code}"
-                if txt_files_found == 1:  # Si es el primer archivo y falla, retornar error
+                if txt_files_found == 0:
                     return [], error_msg
-                # Si hay más archivos, continuar pero mostrar advertencia
                 st.warning(error_msg)
     
     if txt_files_found == 0:
