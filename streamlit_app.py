@@ -820,6 +820,16 @@ def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str
 # Timeouts GitHub: sin ellos la app puede quedar colgada indefinidamente (p. ej. en "archivo 5 de 142")
 _GITHUB_TIMEOUT_DIR = (15, 45)
 _GITHUB_TIMEOUT_FILE = (20, 180)
+# Por ejecución del script: si la descarga .txt supera ~60s, Streamlit Cloud devuelve 503 en /script-health-check.
+# Variable de entorno opcional TRANSCRIPT_DOWNLOAD_BUDGET_SEC (por defecto 42, máx. 55).
+_GITHUB_DOWNLOAD_BUDGET_SEC = max(
+    15.0, min(float(os.environ.get("TRANSCRIPT_DOWNLOAD_BUDGET_SEC", "42")), 55.0)
+)
+
+
+def _github_txt_resume_storage_key(owner_repo: str, path: str, time_window_key: str | None) -> str:
+    tws = (time_window_key or "all").strip()
+    return f"github_txt_resume::{owner_repo}::{path}::{tws}"
 
 
 def transcription_files_light(files: List[dict]) -> List[dict]:
@@ -858,6 +868,12 @@ def clear_github_txt_session_cache(repo_url: str) -> None:
                 del st.session_state[k]
             except KeyError:
                 pass
+    for k in list(st.session_state.keys()):
+        if isinstance(k, str) and k.startswith("github_txt_resume::"):
+            try:
+                del st.session_state[k]
+            except KeyError:
+                pass
 
 
 def read_txt_files_from_github(
@@ -888,6 +904,9 @@ def read_txt_files_from_github(
     if cache_key in st.session_state:
         cached_data, cached_time = st.session_state[cache_key]
         if datetime.now() - cached_time < timedelta(minutes=30):
+            st.session_state.pop(
+                _github_txt_resume_storage_key(owner_repo, path, time_window_key), None
+            )
             return cached_data, ""
     
     headers, token = _get_github_headers()
@@ -1004,13 +1023,16 @@ def read_txt_files_from_github(
                     }]
                     # Guardar en caché
                     from datetime import datetime
+                    st.session_state.pop(
+                        _github_txt_resume_storage_key(owner_repo, path, time_window_key), None
+                    )
                     st.session_state[cache_key] = (result, datetime.now())
                     return result, ""
                 except Exception as e:
                     return [], f"Error al decodificar el archivo: {str(e)}"
         return [], f"La ruta '{path}' no es una carpeta o no contiene archivos .txt."
     
-    data = []
+    data: List[dict] = []
     txt_files_found = 0
     txt_items = [
         f for f in items
@@ -1020,103 +1042,143 @@ def read_txt_files_from_github(
     # Si hay filtro temporal, precomputar qué ficheros entran para que el contador
     # (y por tanto el ETA) refleje el total resultante.
     allowed_names = None
-    total_files = len(txt_items)
     if time_window_key:
         try:
             meta_list = [{"name": f["name"], "folder": path} for f in txt_items]
             kept_metas, _stats = filter_files_by_time_window(meta_list, time_window_key)
             allowed_names = set(m.get("name") for m in kept_metas)
-            total_files = len(allowed_names)
         except Exception:
             # Si algo falla al filtrar, caemos al comportamiento anterior (sin filtrar)
             allowed_names = None
-            total_files = len(txt_items)
-    
-    req_num = 0
-    for f in items:
-        if f.get("type") == "file" and f.get("name","").lower().endswith(".txt"):
-            if allowed_names is not None and f.get("name") not in allowed_names:
-                # Saltar archivos que no entran en el filtro temporal
-                continue
-            file_api = f"https://api.github.com/repos/{owner_repo}/contents/{path}/{f['name']}"
-            req_num += 1
-            # Pequeño delay entre descargas reales (no usar índice de la lista API completa)
-            if total_files > 10 and req_num > 1:
-                _time.sleep(0.12)
 
+    names_ordered: List[str] = []
+    for f in txt_items:
+        nm = f.get("name", "")
+        if allowed_names is not None and nm not in allowed_names:
+            continue
+        names_ordered.append(nm)
+    name_to_item = {f["name"]: f for f in txt_items}
+
+    resume_key = _github_txt_resume_storage_key(owner_repo, path, time_window_key)
+    if resume_key in st.session_state:
+        rs = st.session_state.get(resume_key) or {}
+        if (
+            rs.get("owner_repo") == owner_repo
+            and rs.get("path") == path
+            and rs.get("tw") == (time_window_key or "all")
+        ):
+            data = list(rs.get("accumulated") or [])
+            names_ordered = list(rs.get("pending_names") or [])
+            txt_files_found = len(data)
+        else:
+            st.session_state.pop(resume_key, None)
+
+    total_download_target = len(data) + len(names_ordered)
+    t_chunk0 = _time.monotonic()
+    req_num = 0
+    for idx, fname in enumerate(names_ordered):
+        f = name_to_item.get(fname)
+        if not f:
+            continue
+        file_api = f"https://api.github.com/repos/{owner_repo}/contents/{path}/{fname}"
+        req_num += 1
+        if total_download_target > 10 and req_num > 1:
+            _time.sleep(0.12)
+
+        try:
+            file_resp = requests.get(file_api, headers=headers, timeout=_GITHUB_TIMEOUT_FILE)
+        except requests.exceptions.Timeout:
+            st.warning(f"⏱️ Timeout al leer {fname} (>{_GITHUB_TIMEOUT_FILE[1]}s). Se omite y se continúa.")
+            continue
+        except requests.exceptions.RequestException as e:
+            st.warning(f"⚠️ Error de red al leer {fname}: {e}. Se omite y se continúa.")
+            continue
+
+        if file_resp.status_code == 429:
+            try:
+                wait_s = int(float(file_resp.headers.get("Retry-After", "2")))
+            except (ValueError, TypeError):
+                wait_s = 2
+            wait_s = max(1, min(wait_s, 120))
+            _time.sleep(wait_s)
             try:
                 file_resp = requests.get(file_api, headers=headers, timeout=_GITHUB_TIMEOUT_FILE)
-            except requests.exceptions.Timeout:
-                st.warning(f"⏱️ Timeout al leer {f['name']} (>{_GITHUB_TIMEOUT_FILE[1]}s). Se omite y se continúa.")
-                continue
-            except requests.exceptions.RequestException as e:
-                st.warning(f"⚠️ Error de red al leer {f['name']}: {e}. Se omite y se continúa.")
+            except requests.exceptions.RequestException:
+                st.warning(f"⚠️ No se pudo reintentar {fname} tras 429. Se omite.")
                 continue
 
-            if file_resp.status_code == 429:
-                try:
-                    wait_s = int(float(file_resp.headers.get("Retry-After", "2")))
-                except (ValueError, TypeError):
-                    wait_s = 2
-                wait_s = max(1, min(wait_s, 120))
-                _time.sleep(wait_s)
-                try:
-                    file_resp = requests.get(file_api, headers=headers, timeout=_GITHUB_TIMEOUT_FILE)
-                except requests.exceptions.RequestException:
-                    st.warning(f"⚠️ No se pudo reintentar {f['name']} tras 429. Se omite.")
-                    continue
-            
-            # Verificar rate limit en peticiones de archivos individuales
-            if file_resp.status_code == 403 or file_resp.status_code == 429:
-                try:
-                    error_json = file_resp.json()
-                    error_message = error_json.get("message", "")
-                    if "rate limit" in error_message.lower() or "API rate limit" in error_message:
-                        limit = file_resp.headers.get("X-RateLimit-Limit", "60")
-                        remaining = file_resp.headers.get("X-RateLimit-Remaining", "0")
-                        token_issue = ""
-                        if limit == "60" and token:
-                            token_issue = "\n\n⚠️ El límite es 60, lo que indica que el token NO se está usando correctamente. Verifica la configuración del token."
-                        return [], f"⚠️ Límite de tasa alcanzado al obtener archivos.\n\nLímite: {limit}/hora\nQuedan: {remaining} peticiones{token_issue}"
-                except:
-                    pass
-            
-            if file_resp.status_code == 200:
-                file_info = file_resp.json()
-                try:
-                    content_bytes = base64.b64decode(file_info.get("content", ""))
-                    content = content_bytes.decode("utf-8", errors="ignore")
-                    data.append({
-                        "name": f["name"],
-                        "content": content,
-                        "folder": path.lower(),
-                        "sha": file_info.get("sha", ""),
-                        "size": file_info.get("size", len(content_bytes)),
-                    })
-                    txt_files_found += 1
-                    if status_cb:
-                        try:
-                            status_cb(path, txt_files_found, total_files)
-                        except Exception:
-                            pass
-                except Exception as e:
-                    return [], f"Error al decodificar el archivo {f['name']}: {str(e)}"
-            elif file_resp.status_code != 200:
-                # Si hay un error al obtener un archivo, continuar con los demás pero registrar el error
-                error_msg = f"Error al obtener {f['name']}: código {file_resp.status_code}"
-                if txt_files_found == 0:
-                    return [], error_msg
-                st.warning(error_msg)
-    
+        if file_resp.status_code == 403 or file_resp.status_code == 429:
+            try:
+                error_json = file_resp.json()
+                error_message = error_json.get("message", "")
+                if "rate limit" in error_message.lower() or "API rate limit" in error_message:
+                    limit = file_resp.headers.get("X-RateLimit-Limit", "60")
+                    remaining = file_resp.headers.get("X-RateLimit-Remaining", "0")
+                    token_issue = ""
+                    if limit == "60" and token:
+                        token_issue = "\n\n⚠️ El límite es 60, lo que indica que el token NO se está usando correctamente. Verifica la configuración del token."
+                    st.session_state.pop(resume_key, None)
+                    return [], f"⚠️ Límite de tasa alcanzado al obtener archivos.\n\nLímite: {limit}/hora\nQuedan: {remaining} peticiones{token_issue}"
+            except Exception:
+                pass
+
+        if file_resp.status_code == 200:
+            file_info = file_resp.json()
+            try:
+                content_bytes = base64.b64decode(file_info.get("content", ""))
+                content = content_bytes.decode("utf-8", errors="ignore")
+                data.append({
+                    "name": fname,
+                    "content": content,
+                    "folder": path.lower(),
+                    "sha": file_info.get("sha", ""),
+                    "size": file_info.get("size", len(content_bytes)),
+                })
+                txt_files_found += 1
+                if status_cb:
+                    try:
+                        status_cb(path, txt_files_found, total_download_target)
+                    except Exception:
+                        pass
+            except Exception as e:
+                st.session_state.pop(resume_key, None)
+                return [], f"Error al decodificar el archivo {fname}: {str(e)}"
+        elif file_resp.status_code != 200:
+            error_msg = f"Error al obtener {fname}: código {file_resp.status_code}"
+            if txt_files_found == 0:
+                st.session_state.pop(resume_key, None)
+                return [], error_msg
+            st.warning(error_msg)
+
+        if (
+            _time.monotonic() - t_chunk0 >= _GITHUB_DOWNLOAD_BUDGET_SEC
+            and idx + 1 < len(names_ordered)
+        ):
+            st.session_state[resume_key] = {
+                "owner_repo": owner_repo,
+                "path": path,
+                "tw": time_window_key or "all",
+                "accumulated": list(data),
+                "pending_names": list(names_ordered[idx + 1:]),
+            }
+            _orig_total = idx + 1 + len(names_ordered[idx + 1:])
+            st.session_state["_transcript_resume_notice"] = (
+                f"Descarga de «{path}» en varios pasos (límite tiempo Cloud): "
+                f"{len(data)}/{_orig_total} archivos. Continuando automáticamente…"
+            )
+            st.session_state.pop("loading_dataframe", None)
+            safe_rerun()
+
     if txt_files_found == 0:
+        st.session_state.pop(resume_key, None)
         if time_window_key:
             return [], f"No se encontraron archivos .txt en la carpeta '{path}' para el rango seleccionado."
         return [], f"No se encontraron archivos .txt en la carpeta '{path}'."
-    
-    # Guardar en caché los resultados exitosos
+
+    st.session_state.pop(resume_key, None)
     from datetime import datetime
     st.session_state[cache_key] = (data, datetime.now())
-    
+
     return data, ""
 
 
@@ -2389,6 +2451,9 @@ st.markdown("---")
 
 # --- UI: Transcriptions loader ---
 st.header("2) Leer transcripciones")
+_resume_msg = st.session_state.pop("_transcript_resume_notice", None)
+if _resume_msg:
+    st.info(_resume_msg)
 
 # Mostrar estado del token
 headers_token, token_value = _get_github_headers()
@@ -2463,7 +2528,12 @@ with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False
         # Botón para limpiar caché
         if st.button("🗑️ Limpiar Caché", key="clear_cache"):
             # Limpiar todos los cachés de GitHub en session_state
-            keys_to_remove = [k for k in st.session_state.keys() if k.startswith("github_cache_")]
+            keys_to_remove = [
+                k
+                for k in st.session_state.keys()
+                if isinstance(k, str)
+                and (k.startswith("github_cache_") or k.startswith("github_txt_resume::"))
+            ]
             for key in keys_to_remove:
                 del st.session_state[key]
             # Limpiar también el caché del DataFrame de Streamlit
