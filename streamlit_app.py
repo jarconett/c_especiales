@@ -300,6 +300,97 @@ def write_audio_segments_zip_file(segments: List[dict], original_filename: str) 
     return tmp_path, zip_name
 
 
+def split_audio_to_zip_path(audio_bytes: bytes, filename: str, segment_seconds: int = 1800) -> tuple[str, str]:
+    """
+    Corta audio y escribe un ZIP en disco segmento a segmento (sin acumular todos los bytes en RAM).
+    Reduce reinicios por OOM en Streamlit Cloud frente a split_audio + write_audio_segments_zip_file.
+    """
+    ffmpeg_exe = FFMPEG_BIN if (FFMPEG_BIN and os.path.isfile(FFMPEG_BIN)) else "ffmpeg"
+    ffprobe_exe = FFPROBE_BIN if (FFPROBE_BIN and os.path.isfile(FFPROBE_BIN)) else "ffprobe"
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "m4a"
+    if ext not in ("m4a", "mp3", "wav", "ogg", "flac", "webm"):
+        ext = "m4a"
+
+    base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+    base_safe = re.sub(r"[^\w\-]", "_", base_name)[:80] or "audio"
+    zip_name = f"{base_safe}_fragmentos.zip"
+    zip_out = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    zip_path = zip_out.name
+    zip_out.close()
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmpfile:
+            tmpfile.write(audio_bytes)
+            tmp_path = tmpfile.name
+
+        duration_sec = _get_audio_duration_seconds(ffprobe_exe, tmp_path)
+        n_segments = math.ceil(duration_sec / segment_seconds)
+        if n_segments > 40:
+            raise RuntimeError(
+                f"Demasiados fragmentos ({n_segments}). Reduce la duración o el tamaño del archivo."
+            )
+
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for i in range(n_segments):
+                start_sec = i * segment_seconds
+                duration_seg = min(segment_seconds, duration_sec - start_sec)
+                if duration_seg <= 0:
+                    break
+                seg_name = f"{base_name}_part{i+1}.m4a"
+                seg_named = tempfile.NamedTemporaryFile(delete=False, suffix=".m4a")
+                seg_path = seg_named.name
+                seg_named.close()
+                try:
+                    cmd = [
+                        ffmpeg_exe,
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-y",
+                        "-i",
+                        tmp_path,
+                        "-ss",
+                        str(start_sec),
+                        "-t",
+                        str(duration_seg),
+                        "-c:a",
+                        "aac",
+                        "-b:a",
+                        "128k",
+                        seg_path,
+                    ]
+                    run_kw = {"capture_output": True, "timeout": max(300, int(duration_seg) + 240)}
+                    if os.name == "nt" and getattr(subprocess, "CREATE_NO_WINDOW", None) is not None:
+                        run_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+                    result = subprocess.run(cmd, **run_kw)
+                    if result.returncode != 0:
+                        err = (result.stderr or result.stdout or b"").decode("utf-8", errors="replace").strip()
+                        raise RuntimeError(f"ffmpeg falló: {err[:800]}")
+                    zf.write(seg_path, arcname=seg_name)
+                finally:
+                    if os.path.isfile(seg_path):
+                        try:
+                            os.unlink(seg_path)
+                        except OSError:
+                            pass
+        return zip_path, zip_name
+    except Exception:
+        if os.path.isfile(zip_path):
+            try:
+                os.unlink(zip_path)
+            except OSError:
+                pass
+        raise
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
 def clear_audio_download_state():
     """Quita resultados de corte de audio de session_state y borra ZIP temporal si existe."""
     st.session_state.pop("audio_segments", None)
@@ -382,9 +473,10 @@ def _get_file_sha(files: List[dict]) -> dict:
         filename = file_info.get('name', '')
         folder = file_info.get('folder', '').lower()  # Normalizar a minúsculas
         # Usar SHA del archivo si está disponible, o generar hash del contenido
-        if 'sha' in file_info:
+        sha_val = (file_info.get("sha") or "").strip()
+        if sha_val:
             file_index[filename] = {
-                'sha': file_info['sha'],
+                'sha': sha_val,
                 'folder': folder,
                 'size': file_info.get('size', 0)
             }
@@ -730,6 +822,44 @@ _GITHUB_TIMEOUT_DIR = (15, 45)
 _GITHUB_TIMEOUT_FILE = (20, 180)
 
 
+def transcription_files_light(files: List[dict]) -> List[dict]:
+    """Metadatos sin texto completo: evita duplicar megabytes en session_state (Cloud reinicia por OOM)."""
+    out: List[dict] = []
+    for f in files:
+        d: dict = {
+            "name": f.get("name", ""),
+            "folder": f.get("folder", ""),
+            "content": "",
+            "sha": f.get("sha", ""),
+            "size": f.get("size", 0),
+        }
+        if "es_spoti" in f:
+            d["es_spoti"] = f["es_spoti"]
+        out.append(d)
+    return out
+
+
+def clear_github_txt_session_cache(repo_url: str) -> None:
+    """Quita github_cache_* del mismo repo: el contenido ya está en el DataFrame."""
+    import re as _re
+    if not repo_url:
+        return
+    if repo_url.count("/") == 1 and "/" in repo_url:
+        owner_repo = repo_url.replace(".git", "").strip()
+    else:
+        m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
+        if not m:
+            return
+        owner_repo = f"{m.group(1)}/{m.group(2).replace('.git', '')}"
+    prefix = f"github_cache_{owner_repo}_"
+    for k in list(st.session_state.keys()):
+        if isinstance(k, str) and k.startswith(prefix):
+            try:
+                del st.session_state[k]
+            except KeyError:
+                pass
+
+
 def read_txt_files_from_github(
     repo_url: str,
     path: str = "transcripciones",
@@ -865,7 +995,13 @@ def read_txt_files_from_github(
                 try:
                     content_bytes = base64.b64decode(items.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
-                    result = [{"name": items['name'], "content": content, "folder": path.lower()}]
+                    result = [{
+                        "name": items["name"],
+                        "content": content,
+                        "folder": path.lower(),
+                        "sha": items.get("sha", ""),
+                        "size": items.get("size", len(content_bytes)),
+                    }]
                     # Guardar en caché
                     from datetime import datetime
                     st.session_state[cache_key] = (result, datetime.now())
@@ -950,7 +1086,13 @@ def read_txt_files_from_github(
                 try:
                     content_bytes = base64.b64decode(file_info.get("content", ""))
                     content = content_bytes.decode("utf-8", errors="ignore")
-                    data.append({"name": f['name'], "content": content, "folder": path.lower()})
+                    data.append({
+                        "name": f["name"],
+                        "content": content,
+                        "folder": path.lower(),
+                        "sha": file_info.get("sha", ""),
+                        "size": file_info.get("size", len(content_bytes)),
+                    })
                     txt_files_found += 1
                     if status_cb:
                         try:
@@ -1013,7 +1155,9 @@ def force_regenerate_dataframe(
     if progress_cb:
         progress_cb(0.3)
     df = build_transcriptions_dataframe(files)
-    
+    clear_github_txt_session_cache(repo_url)
+    files_light = transcription_files_light(files)
+
     # Guardar en GitHub para próximas cargas
     if progress_cb:
         progress_cb(0.6)
@@ -1041,7 +1185,9 @@ def force_regenerate_dataframe(
         folder_used = f"{folder_used} | {_label}"
     if filter_stats:
         folder_used = f"{folder_used} | filtrados: {filter_stats.get('kept', 0)}/{filter_stats.get('total_in', 0)}"
-    return df, files, folder_used, error_msg if not save_success else ""
+    del files
+    gc.collect()
+    return df, files_light, folder_used, error_msg if not save_success else ""
 
 
 def load_transcriptions_from_github_optimized(
@@ -1105,9 +1251,12 @@ def load_transcriptions_from_github_optimized(
         
         # Construir DataFrame
         df = build_transcriptions_dataframe(files)
-        
+        clear_github_txt_session_cache(repo_url)
         # Guardar en GitHub para próximas cargas
         file_index = _get_file_sha(files)
+        files_light = transcription_files_light(files)
+        del files
+        gc.collect()
         save_success, save_error = _save_dataframe_to_github(repo_url, df, file_index)
         if not save_success:
             # No es crítico si falla guardar, solo mostrar advertencia
@@ -1118,12 +1267,12 @@ def load_transcriptions_from_github_optimized(
         st.session_state[cache_key] = {
             'df': df,
             'index': file_index,
-            'files': files,
+            'files': files_light,
             'folder': folder_used
         }
         if progress_cb:
             progress_cb(1.0)
-        return _finish(df, files, folder_used, "first_load", "")
+        return _finish(df, files_light, folder_used, "first_load", "")
     
     # Hay DataFrame guardado
     # OPTIMIZACIÓN: Saltar la detección de cambios por defecto para carga rápida
@@ -1186,25 +1335,29 @@ def load_transcriptions_from_github_optimized(
     
     # Construir nuevo DataFrame
     df = build_transcriptions_dataframe(files)
-    
+    clear_github_txt_session_cache(repo_url)
+    files_light = transcription_files_light(files)
+
     # Guardar nuevo DataFrame en GitHub
     file_index = _get_file_sha(files)
     save_success, save_error = _save_dataframe_to_github(repo_url, df, file_index)
     if not save_success:
         # No es crítico si falla guardar
         pass
-    
+
     # Guardar también en session_state como caché adicional
     cache_key = f"df_cache_{repo_url}"
     st.session_state[cache_key] = {
         'df': df,
         'index': file_index,
-        'files': files,
+        'files': files_light,
         'folder': folder_used
     }
     if progress_cb:
         progress_cb(1.0)
-    return _finish(df, files, folder_used, "regenerated", "")
+    del files
+    gc.collect()
+    return _finish(df, files_light, folder_used, "regenerated", "")
 
 
 def load_transcriptions_from_github(
@@ -1230,6 +1383,7 @@ def load_transcriptions_from_github(
             time_window_key=time_window_key,
         )
         if files:
+            clear_github_txt_session_cache(repo_url)
             return files, custom_path, ""
         elif error_msg and "404" not in error_msg:
             # Si hay un error real (no solo que no existe), retornarlo
@@ -1269,6 +1423,7 @@ def load_transcriptions_from_github(
     # Si se encontraron archivos, retornarlos
     if all_files:
         folder_used = ", ".join(folders_found) if len(folders_found) > 1 else folders_found[0] if folders_found else "transcripciones"
+        clear_github_txt_session_cache(repo_url)
         return all_files, folder_used, ""
     
     # Si no encuentra nada en ninguna carpeta
@@ -2155,11 +2310,13 @@ with col1:
         audio_bytes = uploaded.read()
         with st.spinner("Cortando audio... (puede tardar 1–2 min)"):
             try:
-                segments = split_audio(audio_bytes, uploaded.name, segment_seconds=int(segment_minutes*60))
-                del audio_bytes
                 clear_audio_download_state()
-                zpath, zip_name = write_audio_segments_zip_file(segments, uploaded.name)
-                del segments
+                zpath, zip_name = split_audio_to_zip_path(
+                    audio_bytes,
+                    uploaded.name,
+                    segment_seconds=int(segment_minutes * 60),
+                )
+                del audio_bytes
                 gc.collect()
                 st.session_state["audio_zip_path"] = zpath
                 st.session_state["audio_zip_download_name"] = zip_name
@@ -2177,13 +2334,36 @@ with col1:
         zpath = st.session_state["audio_zip_path"]
         zdn = st.session_state.get("audio_zip_download_name", "fragmentos.zip")
         if os.path.isfile(zpath):
-            with open(zpath, "rb") as zf:
+            def _zip_download_bytes():
+                with open(zpath, "rb") as zf:
+                    return zf.read()
+
+            try:
                 st.download_button(
                     "Descargar ZIP con todos los fragmentos",
-                    data=zf.read(),
+                    data=_zip_download_bytes,
                     file_name=zdn,
                     key="download_audio_zip_file",
+                    mime="application/zip",
+                    on_click="ignore",
                 )
+            except TypeError:
+                try:
+                    st.download_button(
+                        "Descargar ZIP con todos los fragmentos",
+                        data=_zip_download_bytes,
+                        file_name=zdn,
+                        key="download_audio_zip_file",
+                        mime="application/zip",
+                    )
+                except TypeError:
+                    with open(zpath, "rb") as zf:
+                        st.download_button(
+                            "Descargar ZIP con todos los fragmentos",
+                            data=zf.read(),
+                            file_name=zdn,
+                            key="download_audio_zip_file",
+                        )
         else:
             st.warning("El archivo temporal ya no está disponible. Vuelve a procesar el audio.")
         if st.button("Quitar resultados", key="clear_audio_zip_file"):
