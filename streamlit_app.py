@@ -76,21 +76,21 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 def safe_rerun():
-    """Ejecuta un rerun de forma segura."""
-    # Usar st.rerun() directamente - debería funcionar ahora que st.set_page_config() 
-    # solo se llama una vez al inicio
-    try:
-        st.rerun()
-    except AttributeError:
-        # Si st.rerun() no está disponible, intentar experimental_rerun
+    """Ejecuta un rerun compatible con Streamlit 1.26 (experimental_rerun) y versiones nuevas (rerun)."""
+    rerun = getattr(st, "rerun", None)
+    if callable(rerun):
         try:
-            st.experimental_rerun()
-        except AttributeError:
-            # Si tampoco está disponible, usar un enfoque alternativo
-            # Forzar rerun mediante cambio de estado
-            if 'force_rerun' not in st.session_state:
-                st.session_state['force_rerun'] = 0
-            st.session_state['force_rerun'] += 1
+            rerun()
+            return
+        except (AttributeError, TypeError, RuntimeError):
+            pass
+    experimental = getattr(st, "experimental_rerun", None)
+    if callable(experimental):
+        experimental()
+        return
+    if "force_rerun" not in st.session_state:
+        st.session_state["force_rerun"] = 0
+    st.session_state["force_rerun"] += 1
 
 def check_password(password: str) -> bool:
     """Verifica si la contraseña es correcta."""
@@ -162,8 +162,7 @@ def show_login_page():
                 st.session_state['password_entered'] = password
                 # Mostrar mensaje de éxito
                 st.success("✅ Contraseña correcta!")
-                # st.rerun() mantiene la sesión de Streamlit; window.location.reload() puede perderla (vuelve al login).
-                st.rerun()
+                safe_rerun()
             else:
                 st.error("❌ Contraseña incorrecta. Intenta nuevamente.")
         
@@ -199,8 +198,7 @@ with col_logout:
         # Limpiar otros estados relacionados si es necesario
         if 'password_entered' in st.session_state:
             del st.session_state['password_entered']
-        # Rerun para mostrar la página de login
-        st.rerun()
+        safe_rerun()
 
 with col_title:
     st.title("💰🔊 A ganar billete 💵 💶 💴")
@@ -2190,7 +2188,7 @@ with col1:
             st.warning("El archivo temporal ya no está disponible. Vuelve a procesar el audio.")
         if st.button("Quitar resultados", key="clear_audio_zip_file"):
             clear_audio_download_state()
-            st.rerun()
+            safe_rerun()
     elif "audio_segments" in st.session_state:
         st.markdown("### Descargar fragmentos (formato antiguo)")
         for seg in st.session_state["audio_segments"]:
