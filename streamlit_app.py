@@ -1,6 +1,8 @@
 import streamlit as st
 import io, math, gc, pandas as pd, re, requests, tempfile, os, base64, unicodedata, html, json, zipfile
 import subprocess
+import hmac
+import time as _time_mod
 from typing import List
 from rapidfuzz import fuzz
 import hashlib
@@ -109,6 +111,112 @@ def check_password(password: str) -> bool:
     # Si no es un hash, comparar directamente (para compatibilidad)
     return password == correct_password
 
+
+# Hash por defecto cuando no hay APP_PASSWORD (mismo criterio que check_password)
+_DEFAULT_APP_PASSWORD_HASH = (
+    "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9"
+)
+
+_AUTH_QUERY_PARAM = "st_auth"
+
+
+def _auth_signing_secret() -> bytes:
+    """Clave HMAC: AUTH_SIGNING_SECRET en secrets, o derivada de APP_PASSWORD."""
+    try:
+        k = str(st.secrets.get("AUTH_SIGNING_SECRET", "") or "").strip()
+        if k:
+            return hashlib.sha256(k.encode("utf-8")).digest()
+    except Exception:
+        pass
+    ph = get_password_hash()
+    if ph:
+        return hashlib.sha256(ph.encode("utf-8")).digest()
+    return hashlib.sha256(_DEFAULT_APP_PASSWORD_HASH.encode("utf-8")).digest()
+
+
+def _make_auth_url_token(ttl_days: int) -> str:
+    exp = int(_time_mod.time()) + int(ttl_days) * 86400
+    msg = f"v1:{exp}".encode("utf-8")
+    sig = hmac.new(_auth_signing_secret(), msg, hashlib.sha256).hexdigest()
+    payload = f"v1:{exp}:{sig}"
+    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _verify_auth_url_token(token: str) -> bool:
+    if not token or not isinstance(token, str):
+        return False
+    try:
+        pad = "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(token + pad).decode("utf-8")
+        parts = raw.split(":", 2)
+        if len(parts) != 3 or parts[0] != "v1":
+            return False
+        exp = int(parts[1])
+        sig = parts[2]
+        if int(_time_mod.time()) > exp:
+            return False
+        msg = f"v1:{exp}".encode("utf-8")
+        expected = hmac.new(_auth_signing_secret(), msg, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, sig)
+    except Exception:
+        return False
+
+
+def _query_params_auth_get() -> str:
+    try:
+        qp = getattr(st, "query_params", None)
+        if qp is None:
+            return ""
+        v = qp.get(_AUTH_QUERY_PARAM)
+        if v is None:
+            return ""
+        if isinstance(v, (list, tuple)):
+            return str(v[0]) if v else ""
+        return str(v)
+    except Exception:
+        return ""
+
+
+def _query_params_auth_set(token: str) -> None:
+    try:
+        st.query_params[_AUTH_QUERY_PARAM] = token
+    except Exception:
+        pass
+
+
+def _query_params_auth_del() -> None:
+    try:
+        if _AUTH_QUERY_PARAM in st.query_params:
+            del st.query_params[_AUTH_QUERY_PARAM]
+    except Exception:
+        pass
+
+
+def try_restore_session_auth_from_url() -> bool:
+    """Si la URL lleva token válido, permite recuperar sesión tras reinicio en Cloud."""
+    tok = _query_params_auth_get()
+    if not tok:
+        return False
+    if _verify_auth_url_token(tok):
+        return True
+    _query_params_auth_del()
+    return False
+
+
+def persist_auth_token_to_url_after_login() -> None:
+    """Guarda token firmado en la URL (TTL configurable por secrets AUTH_TOKEN_DAYS)."""
+    try:
+        ttl = 30
+        try:
+            ttl = int(st.secrets.get("AUTH_TOKEN_DAYS", 30))
+        except Exception:
+            ttl = 30
+        ttl = max(1, min(ttl, 90))
+        _query_params_auth_set(_make_auth_url_token(ttl_days=ttl))
+    except Exception:
+        pass
+
+
 # -------------------------------
 # CONFIGURACIÓN INICIAL DE LA APP
 # -------------------------------
@@ -160,6 +268,7 @@ def show_login_page():
                 # Establecer el estado de autenticación
                 st.session_state['authenticated'] = True
                 st.session_state['password_entered'] = password
+                persist_auth_token_to_url_after_login()
                 # Mostrar mensaje de éxito
                 st.success("✅ Contraseña correcta!")
                 safe_rerun()
@@ -171,14 +280,28 @@ def show_login_page():
         # Información adicional
         st.markdown("---")
         st.caption("💡 Para configurar la contraseña en Streamlit Cloud, agrega 'APP_PASSWORD' en los Secrets de la aplicación.")
+        st.caption(
+            "Tras iniciar sesión se añade un token seguro a la URL (parámetro st_auth) para que el acceso "
+            "sobreviva si Cloud reinicia la sesión. No compartas el enlace completo; usa «Salir» para invalidarlo en el navegador."
+        )
 
 # Verificar autenticación
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 
 if not st.session_state['authenticated']:
+    if try_restore_session_auth_from_url():
+        st.session_state['authenticated'] = True
+
+if not st.session_state['authenticated']:
     show_login_page()
     st.stop()
+
+# Sesiones antiguas sin token en URL: añadirlo una vez para sobrevivir reinicios de Cloud
+if st.session_state.get("authenticated") and not _query_params_auth_get():
+    persist_auth_token_to_url_after_login()
+    if _query_params_auth_get():
+        safe_rerun()
 
 # -------------------------------
 # ESTILOS DE LA APP (solo se muestra si está autenticado)
@@ -198,6 +321,7 @@ with col_logout:
         # Limpiar otros estados relacionados si es necesario
         if 'password_entered' in st.session_state:
             del st.session_state['password_entered']
+        _query_params_auth_del()
         safe_rerun()
 
 with col_title:
