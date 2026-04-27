@@ -1,153 +1,433 @@
 {
   "file_index": {
-    "23032026 part1.txt": {
-      "sha": "cf0c1a01d903a1017cd9aeedc0a552d60d4d992407c32fc0a960cfc94e80f278",
+    "02032026 part1.txt": {
+      "sha": "6df077c7e2f1036c2c7c80eb364cd16188e6d51b",
       "folder": "transcripciones",
-      "size": 33003
+      "size": 32473
+    },
+    "02032026 part2.txt": {
+      "sha": "e7993970099626820c5eaefdd061cd240f0657a6",
+      "folder": "transcripciones",
+      "size": 35010
+    },
+    "02032026 part3.txt": {
+      "sha": "6edd8ee4d17f4430dd95cc211693709ac325a85b",
+      "folder": "transcripciones",
+      "size": 32058
+    },
+    "03032026 part1.txt": {
+      "sha": "f984db99b6dc952bcff62aebaaf8c4bdbcf902a4",
+      "folder": "transcripciones",
+      "size": 32338
+    },
+    "03032026 part2.txt": {
+      "sha": "b5bcacc36c9c9907f0c4080423650e060415104d",
+      "folder": "transcripciones",
+      "size": 33950
+    },
+    "03032026 part3.txt": {
+      "sha": "afa69bc9d28ade1b84b85d64b820f0c9d519a5c8",
+      "folder": "transcripciones",
+      "size": 36745
+    },
+    "03032026 part4.txt": {
+      "sha": "6ed4b6e6794ad6db9e998214dc947a4b65b880fb",
+      "folder": "transcripciones",
+      "size": 7638
+    },
+    "04032026 part4.txt": {
+      "sha": "c9767abe4e7bd293f9986a86af6ff79f1df9842b",
+      "folder": "transcripciones",
+      "size": 3604
+    },
+    "09032026 part1.txt": {
+      "sha": "af806c2bdd02a20f041eb5e087b55fd1b092b8d5",
+      "folder": "transcripciones",
+      "size": 32367
+    },
+    "09032026 part2.txt": {
+      "sha": "3c32c55bb737675f9c28f3049b4a7f4afea578eb",
+      "folder": "transcripciones",
+      "size": 33326
+    },
+    "09032026 part3.txt": {
+      "sha": "c04f0e365d9b78f5111a11d5df11d03b874dec3f",
+      "folder": "transcripciones",
+      "size": 33768
+    },
+    "09032026 part4.txt": {
+      "sha": "4c93ef4f78ea158318dbaaabb4c2fb483f451229",
+      "folder": "transcripciones",
+      "size": 5802
+    },
+    "10032026 part1.txt": {
+      "sha": "5397b8b5e22d77fb43ba80b83bffa95bc835c12d",
+      "folder": "transcripciones",
+      "size": 32577
+    },
+    "10032026 part2.txt": {
+      "sha": "f4301289d3a5d066570242708de1a6e532ed483b",
+      "folder": "transcripciones",
+      "size": 35280
+    },
+    "10032026 part3.txt": {
+      "sha": "7a036e94c0f8a7c993d7b9e8a50a5e360da4ec38",
+      "folder": "transcripciones",
+      "size": 37295
+    },
+    "10032026 part4.txt": {
+      "sha": "4767cfff68e3eaf6b59d5d49d884ab79f58287f0",
+      "folder": "transcripciones",
+      "size": 6454
+    },
+    "11032026 part4.txt": {
+      "sha": "ad67eda1731e8ce43ca4c024b56214af9e3d8336",
+      "folder": "transcripciones",
+      "size": 3264
+    },
+    "12032026 part1.txt": {
+      "sha": "5a9025e4f4657e81e3857697a0cbc1093182934a",
+      "folder": "transcripciones",
+      "size": 33759
+    },
+    "12032026 part2.txt": {
+      "sha": "69c3108326622263713ebff6ef331747668b760e",
+      "folder": "transcripciones",
+      "size": 33418
+    },
+    "12032026 part3.txt": {
+      "sha": "912bd6847809b8884c0c7fdb35def36c72f285cc",
+      "folder": "transcripciones",
+      "size": 36288
+    },
+    "12032026 part4.txt": {
+      "sha": "e16fbd6e159752b14c1e3c6d16d53a1dc46312ef",
+      "folder": "transcripciones",
+      "size": 6136
+    },
+    "13032026 part4.txt": {
+      "sha": "e1ebb349bdbeb75a01d82c8c5c43aec93e656b51",
+      "folder": "transcripciones",
+      "size": 4147
+    },
+    "16032026 part1.txt": {
+      "sha": "ed3111ea7c9cdf986ffa406b7e47f925094b0d78",
+      "folder": "transcripciones",
+      "size": 33126
+    },
+    "16032026 part2.txt": {
+      "sha": "037c8c123272dd18b52c71a6500d6f0d7c3db2cc",
+      "folder": "transcripciones",
+      "size": 33699
+    },
+    "16032026 part3.txt": {
+      "sha": "b1adf95e8b24ec7858a384d588c98f7a9aab021b",
+      "folder": "transcripciones",
+      "size": 33787
+    },
+    "16032026 part4.txt": {
+      "sha": "b6b88fe6d667308b133c9b7c8b53ef5ff720d515",
+      "folder": "transcripciones",
+      "size": 2373
+    },
+    "17032026 part1.txt": {
+      "sha": "07186e51c452d06cef3f9e384dc770ec2ea05133",
+      "folder": "transcripciones",
+      "size": 30290
+    },
+    "17032026 part2.txt": {
+      "sha": "fe76b1dd9d2e83f230408b6eff2ad0bca52d5f84",
+      "folder": "transcripciones",
+      "size": 32398
+    },
+    "17032026 part3.txt": {
+      "sha": "4a897b212263eb07aab3a446195a021730b4f700",
+      "folder": "transcripciones",
+      "size": 33928
+    },
+    "17032026 part4.txt": {
+      "sha": "17f8dbbfe0b1b41b73c00bbc5efba6ccb920e9c1",
+      "folder": "transcripciones",
+      "size": 9088
+    },
+    "18032026 part1.txt": {
+      "sha": "eed85e3ef450d2f19e041414476516e8cb10efe1",
+      "folder": "transcripciones",
+      "size": 31720
+    },
+    "18032026 part2.txt": {
+      "sha": "62cf6a5ebd446799c71fa1f11b9426332a611840",
+      "folder": "transcripciones",
+      "size": 35284
+    },
+    "18032026 part3.txt": {
+      "sha": "e03b6a11fd1bf21e6637fda3a622b99bc6aacce5",
+      "folder": "transcripciones",
+      "size": 32367
+    },
+    "18032026 part4.txt": {
+      "sha": "f185579632332975ec489f8501615f0622b00051",
+      "folder": "transcripciones",
+      "size": 6656
+    },
+    "19032026 part3.txt": {
+      "sha": "3ab7de1b6d5595d553492b0f7969eb502ddab3e7",
+      "folder": "transcripciones",
+      "size": 31533
+    },
+    "19032026 part4.txt": {
+      "sha": "42719f7e83ce57fd39ed5a519e6593dcc99fc898",
+      "folder": "transcripciones",
+      "size": 4249
+    },
+    "20032026 part1.txt": {
+      "sha": "d3b1b456dbeef9039a3bc4be92e166a0a1b1606b",
+      "folder": "transcripciones",
+      "size": 31600
+    },
+    "20032026 part2.txt": {
+      "sha": "f85ef6aae591aea303d06b4e728f8f5ae45c1bcb",
+      "folder": "transcripciones",
+      "size": 30354
+    },
+    "20032026 part3.txt": {
+      "sha": "550e2ed381af6e887f7ded1aeeac77f593cb547c",
+      "folder": "transcripciones",
+      "size": 34140
+    },
+    "23032026 part1.txt": {
+      "sha": "982d35bdc8699a5f7c161ccc20eac9d3a4f707ce",
+      "folder": "transcripciones",
+      "size": 33690
     },
     "23032026 part2.txt": {
-      "sha": "158defc713fc9c6c32a3ee8ef82544eacae79a918626d883e62b7e0ee3637e51",
+      "sha": "f5ca20494d090a640e686b37c93621463932c356",
       "folder": "transcripciones",
-      "size": 30453
+      "size": 31108
     },
     "23032026 part3.txt": {
-      "sha": "81241c9a1bf4d70e062a2e96c55508b2097ab8ac47a732303bb362b62caadef0",
+      "sha": "3f5ed0e6dd5a8d375a2d2809b42b21cffc869ba3",
       "folder": "transcripciones",
-      "size": 32464
+      "size": 33126
     },
     "23032026 part4.txt": {
-      "sha": "31a5ffa976541e4aef74592f9cc725eb1f124b643722bdf0de2cac47166308c9",
+      "sha": "5f799a12e2cfc9c8fd68ff3e8f56b55f8899d332",
       "folder": "transcripciones",
-      "size": 3023
+      "size": 3091
     },
     "24032026 part1.txt": {
-      "sha": "d9eb9b574ac58691465bafc8f0678ad924f4880be9a90633f226854ce15d3304",
+      "sha": "c574cecd5fb016fbf014f2f653e70405c3d76550",
       "folder": "transcripciones",
-      "size": 32684
+      "size": 33381
     },
     "24032026 part2.txt": {
-      "sha": "e22b0069bf2384c854b5a2a6cec0f74bc5b4001e5911ef0af1cb7498711895fa",
+      "sha": "8b35a169b1f7ee3e04567c707bda70c3f8971a3a",
       "folder": "transcripciones",
-      "size": 33268
+      "size": 34034
     },
     "24032026 part3.txt": {
-      "sha": "10213f0489c9e076043c1e1ecf7e4f941b03cfb69526487e6e3118f9236f2f41",
+      "sha": "8c91855945f8327791ea499bcf0229fbefa15fb1",
       "folder": "transcripciones",
-      "size": 34434
+      "size": 35266
     },
     "25032026 part1.txt": {
-      "sha": "632d606b969d64cf6fec0fe0d9def49714bf57e26434ce596473b96094d5ca58",
+      "sha": "b6034544cd234df55201fa2ed541ee9fb4629e1f",
       "folder": "transcripciones",
-      "size": 29857
+      "size": 30565
     },
     "25032026 part2.txt": {
-      "sha": "402b5630fab2dffba659cfa6ab5818e41a66e735930a6d85f99f88bff96ee0f1",
+      "sha": "242abc4d092ee6ccc2412cb3b501125762955e38",
       "folder": "transcripciones",
-      "size": 35947
+      "size": 36795
     },
     "25032026 part3.txt": {
-      "sha": "0dc92ba7884078f1d31ca6cb9a6e1a88d5ad6a364a640497682571d444378c9e",
+      "sha": "188c8aa3d691d35f106030bd3d037501d741fc59",
       "folder": "transcripciones",
-      "size": 36254
+      "size": 37193
     },
     "26032026 part1.txt": {
-      "sha": "1a4f65a527b26348e8de68ef32451fc531c71629235c2d306f9febb0baa08219",
+      "sha": "1d4ba3eb8e21c71347c324419dc0c5c57075386b",
       "folder": "transcripciones",
-      "size": 33641
+      "size": 34372
     },
     "26032026 part2.txt": {
-      "sha": "f1ecb364d09bfc910b3652c69e6258bee683947242a15ee712df42f396d6c7ae",
+      "sha": "141e5e991adb0d9215c8784a6707f05a686ab047",
       "folder": "transcripciones",
-      "size": 35666
+      "size": 36430
     },
     "26032026 part3.txt": {
-      "sha": "d5670b12275f3e47168e4555a172d500ad22db166324cd0609160dcfb11df048",
+      "sha": "ad4d242270724d15b491c53c98949240752f42d1",
       "folder": "transcripciones",
-      "size": 32968
+      "size": 33651
     },
     "26032026 part4.txt": {
-      "sha": "b94445acafe37959aab356bdd0d749d432889aee73f466986c2e9652a0770693",
+      "sha": "ac4c08272f256bdee88f554ce8c34f98a485d3f2",
       "folder": "transcripciones",
-      "size": 7506
+      "size": 7661
     },
     "27032026 part1.txt": {
-      "sha": "9b1f096e5dcee95f0ab5ad17c418c35d699c29a1044cf74174ca7da6a714bad4",
+      "sha": "5e9acd3de8c1df63694e12e77f2b863371cadca1",
       "folder": "transcripciones",
-      "size": 30629
+      "size": 31281
     },
     "27032026 part2.txt": {
-      "sha": "1d2a237b20b4d5b479ce2772c1534136c6b99c0de74f03ffd9a9b35ac59b81cf",
+      "sha": "ca03cf6df60a146a3b4d7516475f639be77d17ec",
       "folder": "transcripciones",
-      "size": 34345
+      "size": 35062
     },
     "27032026 part3.txt": {
-      "sha": "0c7c1d1f85829dd134e9a3f785e07635e81b2511526b86b62726bff5749b7616",
+      "sha": "0805538f9be682df9b1c6c8a2399e8ef9ae9ac26",
       "folder": "transcripciones",
-      "size": 33863
+      "size": 34579
     },
     "27032026 part4.txt": {
-      "sha": "0924889a38215f467fbf348cbbb8300ab1774df82c684c5fe9075cd397754ffb",
+      "sha": "e6ce1cdd19e7f7532e954fe83d607140c865d45e",
       "folder": "transcripciones",
-      "size": 10636
+      "size": 10850
+    },
+    "02032026.txt": {
+      "sha": "0d26cf02c43475e900b4114be942078a806d33a8",
+      "folder": "spoti",
+      "size": 96148
+    },
+    "03032026.txt": {
+      "sha": "636bad5b8f3f240376f463774695e2b00a12414e",
+      "folder": "spoti",
+      "size": 104735
+    },
+    "04032026.txt": {
+      "sha": "ce9635493fd5a01c0e2d71e34808184aad4f94e2",
+      "folder": "spoti",
+      "size": 93761
     },
     "06042026.txt": {
-      "sha": "ff41c491591fc36019c8392150f46c9a25b780e18ef2ed7c073da15961b08340",
+      "sha": "08ed9ea014cb247a7ce0ad16da0adfd2e32e2f87",
       "folder": "spoti",
-      "size": 106330
+      "size": 108376
     },
     "07042026.txt": {
-      "sha": "e1b104790d46a53074fcd65a6dad625f80e1aa624d396c357cb7e20dbfb01f0f",
+      "sha": "4621bc27f0834e9cccb5b491a31a6c326f4f94c6",
       "folder": "spoti",
-      "size": 108366
+      "size": 110568
     },
     "08042026.txt": {
-      "sha": "e57a28836ba327e74a6216496e15ed47fb6d4fbe4a5dbc9378f4cbaf320b0378",
+      "sha": "3a3a5d3de19c4863610a74115cea57a3555fae82",
       "folder": "spoti",
-      "size": 106734
+      "size": 108920
+    },
+    "09032026.txt": {
+      "sha": "63f9dd4711a837cdb94f477ac27ffebcd919f92c",
+      "folder": "spoti",
+      "size": 99045
     },
     "09042026.txt": {
-      "sha": "bb6b1b707277d60e3a036f5a53ec758e455a3dc93deab29f1ba64315dc0295b3",
+      "sha": "c1ad592f1cefcca5c915758f3433c2bd9cb62f5f",
       "folder": "spoti",
-      "size": 108122
+      "size": 110304
+    },
+    "10032026.txt": {
+      "sha": "d7957a6464b9dbcb79c37e65cd9ef77d00de00f4",
+      "folder": "spoti",
+      "size": 101375
     },
     "10042026.txt": {
-      "sha": "bab0f988c9abeec3c933bcb65440db5befafc27f9e42dd90fe0ed8759f956f81",
+      "sha": "06e62e624a505ce2c659c78fe144fdd41837dca2",
       "folder": "spoti",
-      "size": 107566
+      "size": 109798
+    },
+    "11032026.txt": {
+      "sha": "9dd44da208b27adf30a846d5d118529e2eee6e85",
+      "folder": "spoti",
+      "size": 98244
+    },
+    "12032026.txt": {
+      "sha": "668db6ca92f5a56dfac6680c3ec7d5931efa6ea8",
+      "folder": "spoti",
+      "size": 103593
+    },
+    "13032026.txt": {
+      "sha": "8bda138638cb626987b2eae413771a037d842bb0",
+      "folder": "spoti",
+      "size": 103163
     },
     "13042026.txt": {
-      "sha": "9051944b72a90970148e74f62a8fb7359b6fe7172239c393ac7cbb17d298778a",
+      "sha": "135a0a2474b0f39994c90e3fbc920f7c9cfb1ac9",
       "folder": "spoti",
-      "size": 93915
+      "size": 95787
+    },
+    "16032026.txt": {
+      "sha": "5828f72ef0dd4df54d7d986a2bb95a2b37297bca",
+      "folder": "spoti",
+      "size": 99428
+    },
+    "17032026.txt": {
+      "sha": "2821153839701070aeb5186b0fe98e2337a6eb41",
+      "folder": "spoti",
+      "size": 106252
+    },
+    "18032026.txt": {
+      "sha": "6ab6146a0ae274a603fe843180fa4a208d371bc2",
+      "folder": "spoti",
+      "size": 105307
+    },
+    "19032026.txt": {
+      "sha": "d165ac190cd60b0a8e679e24b43f655363616040",
+      "folder": "spoti",
+      "size": 107007
+    },
+    "20032026.txt": {
+      "sha": "9818fe1025acd3f8db5b50b9c06106d8175da081",
+      "folder": "spoti",
+      "size": 106545
+    },
+    "21042026.txt": {
+      "sha": "788109b8d54db47e91b6ed99e9fbbe44bdb81fde",
+      "folder": "spoti",
+      "size": 106066
+    },
+    "22042026.txt": {
+      "sha": "c1f9e1eb2f23a15500eb31ec21bffb4ccf1e41be",
+      "folder": "spoti",
+      "size": 112175
     },
     "23032026.txt": {
-      "sha": "5b7547b77eb9cbdb2c94f9892aa55e78396a131f5417ea12ead7488d28f10cbe",
+      "sha": "333f478dc6c1a55d8bb3cedf94184aebf64aab45",
       "folder": "spoti",
-      "size": 106472
+      "size": 108429
+    },
+    "23042026.txt": {
+      "sha": "69287c305284eaf02803d430d3c2a65aa50a7f52",
+      "folder": "spoti",
+      "size": 106011
     },
     "24032026.txt": {
-      "sha": "ddedaade828b6fa868f311c073ed344b4a9d8689943260b2d5cc1991b10ce897",
+      "sha": "6d8eabc9c21737791ddbf63d56ca50b565c335af",
       "folder": "spoti",
-      "size": 108608
+      "size": 110631
+    },
+    "24042026.txt": {
+      "sha": "e98522d5dc789d098ff292e1dbba8693672f9d19",
+      "folder": "spoti",
+      "size": 102767
     },
     "25032026.txt": {
-      "sha": "b484be7d0908f1eea621bbc5d5c3c041e8168a8305ea523dbe7affd6b991efcf",
+      "sha": "aacd1f3089257ec9fd53f501b518274f2b2648ee",
       "folder": "spoti",
-      "size": 108311
+      "size": 110681
     },
     "26032026.txt": {
-      "sha": "f3a66e30cc26376aa23591c926c5bed3ce880e3169068840b13232408684d7af",
+      "sha": "0724a9e3059ca59feaa33db1265970777679ebdc",
       "folder": "spoti",
-      "size": 106879
+      "size": 108874
     },
     "27032026.txt": {
-      "sha": "6c3ab41ed0d9c8134d8ca4ba84034ff2b647ed84b81e012153b2e93e8f18d347",
+      "sha": "a3c033be67e659ec508de505136ac6be6a1106b2",
       "folder": "spoti",
-      "size": 107606
+      "size": 109688
     }
   },
-  "timestamp": "2026-04-19T08:14:38.677497+00:00",
-  "total_files": 29,
-  "df_rows": 10524,
+  "timestamp": "2026-04-27T09:59:34.385899+00:00",
+  "total_files": 85,
+  "df_rows": 29235,
   "df_parts": 1
 }
