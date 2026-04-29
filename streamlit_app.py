@@ -778,9 +778,7 @@ _DF_TIME_WINDOW_LABEL_TO_KEY = {
     "Última temporada": "season",
 }
 
-_DF_TIME_WINDOW_KEY_TO_LABEL = {
-    v: k for k, v in _DF_TIME_WINDOW_LABEL_TO_KEY.items()
-}
+_DF_TIME_WINDOW_KEY_TO_LABEL = {v: k for k, v in _DF_TIME_WINDOW_LABEL_TO_KEY.items()}
 
 
 def _on_df_time_window_radio_change():
@@ -2720,6 +2718,23 @@ if gh_url:
         if "df_time_window_radio" not in st.session_state:
             st.session_state["df_time_window_radio"] = _key_to_label.get(saved_key, "Última temporada")
 
+    # Mostrar el radio arriba (antes de cargar el DataFrame) para que se vea
+    # la opción incluso mientras se construye al inicio.
+    time_window_label = st.radio(
+        "Incluir archivos en el DataFrame (regeneración):",
+        options=list(_DF_TIME_WINDOW_LABEL_TO_KEY.keys()),
+        key="df_time_window_radio",
+        on_change=_on_df_time_window_radio_change,
+        help="Filtra qué archivos de 'transcripciones' y 'spoti' se incluyen al regenerar el DataFrame. Cada cambio se guarda en data/settings.json en GitHub para la próxima carga.",
+    )
+    time_window_key = _DF_TIME_WINDOW_LABEL_TO_KEY.get(time_window_label, "season")
+
+    _used_key = st.session_state.get(
+        "df_time_window_last_used_key",
+        st.session_state.get("df_time_window_saved_key", time_window_key),
+    )
+    st.caption(f"DataFrame actual se construye con: {_DF_TIME_WINDOW_KEY_TO_LABEL.get(_used_key, time_window_label)}")
+
 # Carga automática al inicio si no hay datos (optimizada)
 # PRIORIDAD: 1) session_state (trans_df/trans_files), 2) caché adicional (df_cache), 3) caché Streamlit, 4) GitHub
 if gh_url:
@@ -2745,7 +2760,7 @@ if gh_url:
             st.session_state['trans_df'] = df_view
             st.session_state['trans_files'] = files_view
             st.session_state['dataframe_loaded'] = True
-            st.session_state['df_built_time_window_key'] = _tw
+            st.session_state['df_time_window_last_used_key'] = _tw
             _vista = _stw.get("window_label", "")
             _extra = f" | vista: {_vista}" if _vista else ""
             st.success(
@@ -2761,6 +2776,11 @@ if gh_url:
             with st.spinner("Cargando transcripciones desde GitHub (optimizado)..."):
                 progress_bar = st.progress(0)
                 status_placeholder = st.empty()
+
+                # Qué ventana temporal se está usando ahora para construir el DataFrame
+                st.session_state['df_time_window_last_used_key'] = st.session_state.get(
+                    "df_time_window_saved_key", "season"
+                )
 
                 def _df_load_progress(p: float):
                     try:
@@ -2809,7 +2829,6 @@ if gh_url:
                     st.session_state['trans_files'] = files
                     st.session_state['trans_df'] = df
                     st.session_state['dataframe_loaded'] = True
-                    st.session_state['df_built_time_window_key'] = st.session_state.get("df_time_window_saved_key", "season")
                     
                     # Mostrar información de tiempos si está disponible
                     time_info = ""
@@ -2897,6 +2916,9 @@ with button_col1:
                 if not df.empty:
                     st.session_state['trans_files'] = files
                     st.session_state['trans_df'] = df
+                    st.session_state['df_time_window_last_used_key'] = st.session_state.get(
+                        "df_time_window_saved_key", "season"
+                    )
                     if status == "cached":
                         st.success(f"⚡ Carga rápida desde caché: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
                     elif status == "regenerated":
@@ -2914,22 +2936,9 @@ with button_col1:
             st.error("Por favor, ingresa una URL de repositorio GitHub válida")
 
 with button_col2:
-    time_window_label = st.radio(
-        "Incluir archivos en el DataFrame (regeneración):",
-        options=list(_DF_TIME_WINDOW_LABEL_TO_KEY.keys()),
-        key="df_time_window_radio",
-        on_change=_on_df_time_window_radio_change,
-        help="Filtra qué archivos de 'transcripciones' y 'spoti' se incluyen al regenerar el DataFrame. Cada cambio se guarda en data/settings.json en GitHub para la próxima carga.",
-    )
-    time_window_key = _DF_TIME_WINDOW_LABEL_TO_KEY.get(time_window_label, "season")
-
-    built_key = st.session_state.get(
-        "df_built_time_window_key",
-        st.session_state.get("df_time_window_saved_key", "season"),
-    )
-    built_label = _DF_TIME_WINDOW_KEY_TO_LABEL.get(built_key, "Última temporada")
-    st.caption(f"DataFrame actual construido con: **{built_label}**.")
-    st.caption(f"Opción por defecto ahora mismo (radio): **{time_window_label}**.")
+    # Radio ya se muestra arriba; aquí solo reutilizamos el valor actual para regenerar.
+    time_window_key = st.session_state.get("df_time_window_saved_key", time_window_key if "time_window_key" in locals() else "season")
+    time_window_label = _DF_TIME_WINDOW_KEY_TO_LABEL.get(time_window_key, "Última temporada")
 
     if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
         if DF_REGEN_LOCK:
@@ -2997,9 +3006,9 @@ with button_col2:
                     if not df.empty:
                         st.session_state['trans_files'] = files
                         st.session_state['trans_df'] = df
-                        st.session_state['df_built_time_window_key'] = time_window_key
                         # Limpiar caché después de regenerar para que use el nuevo DataFrame
                         _load_dataframe_from_github.clear()
+                        st.session_state['df_time_window_last_used_key'] = time_window_key
                         if error_msg:
                             # Regeneración correcta pero fallo al guardar en GitHub
                             st.warning(f"{error_msg}")
