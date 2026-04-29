@@ -778,6 +778,10 @@ _DF_TIME_WINDOW_LABEL_TO_KEY = {
     "Última temporada": "season",
 }
 
+_DF_TIME_WINDOW_KEY_TO_LABEL = {
+    v: k for k, v in _DF_TIME_WINDOW_LABEL_TO_KEY.items()
+}
+
 
 def _on_df_time_window_radio_change():
     """Cada cambio en el radio guarda la preferencia en GitHub (data/settings.json) y en session_state."""
@@ -2741,6 +2745,7 @@ if gh_url:
             st.session_state['trans_df'] = df_view
             st.session_state['trans_files'] = files_view
             st.session_state['dataframe_loaded'] = True
+            st.session_state['df_built_time_window_key'] = _tw
             _vista = _stw.get("window_label", "")
             _extra = f" | vista: {_vista}" if _vista else ""
             st.success(
@@ -2804,6 +2809,7 @@ if gh_url:
                     st.session_state['trans_files'] = files
                     st.session_state['trans_df'] = df
                     st.session_state['dataframe_loaded'] = True
+                    st.session_state['df_built_time_window_key'] = st.session_state.get("df_time_window_saved_key", "season")
                     
                     # Mostrar información de tiempos si está disponible
                     time_info = ""
@@ -2917,6 +2923,14 @@ with button_col2:
     )
     time_window_key = _DF_TIME_WINDOW_LABEL_TO_KEY.get(time_window_label, "season")
 
+    built_key = st.session_state.get(
+        "df_built_time_window_key",
+        st.session_state.get("df_time_window_saved_key", "season"),
+    )
+    built_label = _DF_TIME_WINDOW_KEY_TO_LABEL.get(built_key, "Última temporada")
+    st.caption(f"DataFrame actual construido con: **{built_label}**.")
+    st.caption(f"Opción por defecto ahora mismo (radio): **{time_window_label}**.")
+
     if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
         if DF_REGEN_LOCK:
             st.info("🔒 Ya se está regenerando el DataFrame en otra sesión. Espera a que termine antes de lanzar otra regeneración.")
@@ -2983,6 +2997,7 @@ with button_col2:
                     if not df.empty:
                         st.session_state['trans_files'] = files
                         st.session_state['trans_df'] = df
+                        st.session_state['df_built_time_window_key'] = time_window_key
                         # Limpiar caché después de regenerar para que use el nuevo DataFrame
                         _load_dataframe_from_github.clear()
                         if error_msg:
