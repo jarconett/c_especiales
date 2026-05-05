@@ -3380,7 +3380,7 @@ if gh_url:
                 saved_key = "season"
             st.session_state["df_time_window_saved_key"] = saved_key
         else:
-            # Restringido: sin petición a GitHub hasta «Cargar datos»; radio por defecto.
+            # Restringido: sin petición a GitHub hasta «Cargar Datos» (columna derecha); radio por defecto.
             st.session_state["df_time_window_saved_key"] = "season"
         _key_to_label = {
             "last_1m": "Último mes",
@@ -3407,7 +3407,7 @@ if gh_url:
     )
     time_window_key = _DF_TIME_WINDOW_LABEL_TO_KEY.get(time_window_label, "season")
     # Restringido: el valor efectivo debe ser siempre el del radio en esta ejecución.
-    # Si solo nos fiáramos de on_change, al pulsar «Cargar datos» a veces seguía «season».
+    # Si solo nos fiáramos de on_change, al confirmar la carga a veces seguía «season».
     if not IS_ADMIN:
         st.session_state["df_time_window_saved_key"] = time_window_key
 
@@ -3423,19 +3423,14 @@ if gh_url:
     if not IS_ADMIN and not st.session_state.get("_restricted_user_confirmed_load") and not _has_df:
         st.caption(
             f"Rango seleccionado: {_DF_TIME_WINDOW_KEY_TO_LABEL.get(time_window_key, time_window_label)}. "
-            "Pulsa «Cargar datos» para construir el DataFrame."
+            "Pulsa «Cargar Datos» (columna derecha, junto a recargar) para construir el DataFrame."
         )
     else:
         st.caption(f"DataFrame actual se construye con: {_DF_TIME_WINDOW_KEY_TO_LABEL.get(_used_key, time_window_label)}")
 
-    if not IS_ADMIN and not _has_df:
-        if st.button("Cargar datos", key="restricted_load_df"):
-            st.session_state["_restricted_user_confirmed_load"] = True
-            safe_rerun()
-
 # Carga automática al inicio si no hay datos (optimizada)
 # PRIORIDAD: 1) session_state (trans_df/trans_files), 2) caché adicional (df_cache), 3) caché Streamlit, 4) GitHub
-# Restringido: niveles 2–4 solo tras pulsar «Cargar datos» (_restricted_user_confirmed_load).
+# Restringido: niveles 2–4 solo tras pulsar «Cargar Datos» en la segunda columna (_restricted_user_confirmed_load).
 if gh_url:
     # Nivel 1: Si ya tenemos los datos en session_state estándar, no hacer nada (más rápido)
     if 'trans_df' in st.session_state and 'trans_files' in st.session_state:
@@ -3691,7 +3686,27 @@ with button_col2:
     )
     time_window_label = _DF_TIME_WINDOW_KEY_TO_LABEL.get(time_window_key, "Última temporada")
 
-    if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
+    if IS_ADMIN:
+        _force_btn_label = "🔧 Forzar Regeneración"
+        _force_btn_help = (
+            "Fuerza la regeneración completa del DataFrame ignorando el caché. "
+            "Útil si la detección automática de cambios falla."
+        )
+    else:
+        _force_btn_label = "Cargar Datos"
+        _force_btn_help = (
+            "Construye el DataFrame con el rango elegido arriba. La primera vez puede tardar varios minutos. "
+            "Con datos ya cargados, usa «Recargar» a la izquierda para actualizar."
+        )
+
+    _force_or_load_clicked = st.button(
+        _force_btn_label, key="force_regenerate", help=_force_btn_help
+    )
+
+    if _force_or_load_clicked and not IS_ADMIN:
+        st.session_state["_restricted_user_confirmed_load"] = True
+        safe_rerun()
+    elif _force_or_load_clicked and IS_ADMIN:
         if DF_REGEN_LOCK:
             st.info("🔒 Ya se está regenerando el DataFrame en otra sesión. Espera a que termine antes de lanzar otra regeneración.")
         elif gh_url:
