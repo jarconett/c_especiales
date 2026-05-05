@@ -94,22 +94,73 @@ def safe_rerun():
         st.session_state["force_rerun"] = 0
     st.session_state["force_rerun"] += 1
 
-def check_password(password: str) -> bool:
-    """Verifica si la contraseña es correcta."""
-    correct_password = get_password_hash()
-    if not correct_password:
-        # Si no hay contraseña configurada, usar una por defecto (cambiar en producción)
-        # Para producción, configura APP_PASSWORD en Streamlit Cloud secrets
-        # Puedes generar el hash con: hashlib.sha256("tu_contraseña".encode()).hexdigest()
-        default_hash = "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9"  # hash de "admin123"
-        return hash_password(password) == default_hash
-    
-    # Si la contraseña en secrets es un hash (64 caracteres hex), comparar hashes
-    if len(correct_password) == 64 and all(c in '0123456789abcdef' for c in correct_password.lower()):
-        return hash_password(password) == correct_password.lower()
-    
-    # Si no es un hash, comparar directamente (para compatibilidad)
-    return password == correct_password
+def _password_matches_secret_value(entered: str, secret_val: str) -> bool:
+    """Compara password introducida vs valor en secrets (texto plano o SHA256 hex)."""
+    if not entered:
+        return False
+    sv = (str(secret_val or "")).strip()
+    if not sv:
+        return False
+    if len(sv) == 64 and all(c in "0123456789abcdef" for c in sv.lower()):
+        return hash_password(entered) == sv.lower()
+    return entered == sv
+
+
+def _get_restricted_password_values() -> List[str]:
+    """
+    Passwords restringidas desde secrets.
+    Soporta:
+    - RESTRICTED_PASSWORDS = ["p1", "p2"]  (TOML array)
+    - RESTRICTED_PASSWORDS = "p1,p2"      (string)
+    - default.RESTRICTED_PASSWORDS idem
+    Cada entrada puede ser texto plano o SHA256 (64 hex).
+    """
+    v = None
+    try:
+        if "RESTRICTED_PASSWORDS" in st.secrets:
+            v = st.secrets["RESTRICTED_PASSWORDS"]
+        elif "default" in st.secrets and "RESTRICTED_PASSWORDS" in st.secrets["default"]:
+            v = st.secrets["default"]["RESTRICTED_PASSWORDS"]
+        elif hasattr(st.secrets, "get"):
+            v = st.secrets.get("RESTRICTED_PASSWORDS", None)
+    except Exception:
+        v = None
+
+    if v is None:
+        env = os.getenv("RESTRICTED_PASSWORDS", "").strip()
+        v = env if env else None
+
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple)):
+        return [str(x).strip() for x in v if str(x).strip()]
+    s = str(v).strip()
+    if not s:
+        return []
+    return [p.strip() for p in s.split(",") if p.strip()]
+
+
+def get_role_for_password(entered_password: str) -> tuple[str, str] | tuple[None, None]:
+    """
+    Retorna (rol, cred_hash) si la password es válida.
+    - admin: APP_PASSWORD
+    - restricted: RESTRICTED_PASSWORDS
+    """
+    # Admin
+    admin_secret = get_password_hash()
+    if admin_secret:
+        if _password_matches_secret_value(entered_password, admin_secret):
+            return "admin", hash_password(entered_password)
+    else:
+        # Fallback al hash por defecto ("admin123") si no hay APP_PASSWORD
+        if hash_password(entered_password) == _DEFAULT_APP_PASSWORD_HASH:
+            return "admin", hash_password(entered_password)
+
+    # Restringidas
+    for pv in _get_restricted_password_values():
+        if _password_matches_secret_value(entered_password, pv):
+            return "restricted", hash_password(entered_password)
+    return None, None
 
 
 # Hash por defecto cuando no hay APP_PASSWORD (mismo criterio que check_password)
@@ -118,6 +169,7 @@ _DEFAULT_APP_PASSWORD_HASH = (
 )
 
 _AUTH_QUERY_PARAM = "st_auth"
+_AUTH_TOKEN_VERSION = str(os.getenv("AUTH_TOKEN_VERSION", "") or "").strip() or "1"
 
 
 def _auth_signing_secret() -> bytes:
@@ -134,32 +186,67 @@ def _auth_signing_secret() -> bytes:
     return hashlib.sha256(_DEFAULT_APP_PASSWORD_HASH.encode("utf-8")).digest()
 
 
-def _make_auth_url_token(ttl_days: int) -> str:
+def _make_auth_url_token(ttl_days: int, role: str, cred_hash: str) -> str:
     exp = int(_time_mod.time()) + int(ttl_days) * 86400
-    msg = f"v1:{exp}".encode("utf-8")
+    role = str(role or "").strip() or "restricted"
+    cred_hash = str(cred_hash or "").strip()
+    msg = f"v2:{_AUTH_TOKEN_VERSION}:{exp}:{role}:{cred_hash}".encode("utf-8")
     sig = hmac.new(_auth_signing_secret(), msg, hashlib.sha256).hexdigest()
-    payload = f"v1:{exp}:{sig}"
+    payload = f"v2:{_AUTH_TOKEN_VERSION}:{exp}:{role}:{cred_hash}:{sig}"
     return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
 
 
-def _verify_auth_url_token(token: str) -> bool:
+def _verify_auth_url_token(token: str) -> tuple[bool, str]:
     if not token or not isinstance(token, str):
-        return False
+        return False, ""
     try:
         pad = "=" * (-len(token) % 4)
         raw = base64.urlsafe_b64decode(token + pad).decode("utf-8")
-        parts = raw.split(":", 2)
-        if len(parts) != 3 or parts[0] != "v1":
-            return False
-        exp = int(parts[1])
-        sig = parts[2]
+        parts = raw.split(":")
+        if len(parts) != 6 or parts[0] != "v2":
+            return False, ""
+        tok_ver = str(parts[1]).strip()
+        if tok_ver != _AUTH_TOKEN_VERSION:
+            return False, ""
+        exp = int(parts[2])
+        role = str(parts[3]).strip() or "restricted"
+        cred_hash = str(parts[4]).strip()
+        sig = str(parts[5]).strip()
         if int(_time_mod.time()) > exp:
-            return False
-        msg = f"v1:{exp}".encode("utf-8")
+            return False, ""
+
+        # Revocación: cred_hash debe seguir siendo válido según secrets actuales.
+        if role == "admin":
+            admin_secret = get_password_hash()
+            admin_ok = False
+            if admin_secret:
+                # admin_secret puede ser plano o hash; aceptamos si coincide el hash actual de admin
+                if len(str(admin_secret).strip()) == 64 and all(c in "0123456789abcdef" for c in str(admin_secret).strip().lower()):
+                    admin_ok = (cred_hash == str(admin_secret).strip().lower())
+                else:
+                    admin_ok = True  # si es plano, el HMAC ya lo ata a la clave derivada; revocación por cambio de APP_PASSWORD
+            else:
+                admin_ok = (cred_hash == _DEFAULT_APP_PASSWORD_HASH)
+            if not admin_ok:
+                return False, ""
+        else:
+            allowed_hashes: set[str] = set()
+            for pv in _get_restricted_password_values():
+                pv = str(pv).strip()
+                if len(pv) == 64 and all(c in "0123456789abcdef" for c in pv.lower()):
+                    allowed_hashes.add(pv.lower())
+                else:
+                    allowed_hashes.add(hash_password(pv))
+            if cred_hash not in allowed_hashes:
+                return False, ""
+
+        msg = f"v2:{_AUTH_TOKEN_VERSION}:{exp}:{role}:{cred_hash}".encode("utf-8")
         expected = hmac.new(_auth_signing_secret(), msg, hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, sig)
+        if not hmac.compare_digest(expected, sig):
+            return False, ""
+        return True, role
     except Exception:
-        return False
+        return False, ""
 
 
 def _query_params_auth_get() -> str:
@@ -192,15 +279,16 @@ def _query_params_auth_del() -> None:
         pass
 
 
-def try_restore_session_auth_from_url() -> bool:
-    """Si la URL lleva token válido, permite recuperar sesión tras reinicio en Cloud."""
+def try_restore_session_auth_from_url() -> str:
+    """Si la URL lleva token válido, permite recuperar sesión (retorna rol)."""
     tok = _query_params_auth_get()
     if not tok:
-        return False
-    if _verify_auth_url_token(tok):
-        return True
+        return ""
+    ok, role = _verify_auth_url_token(tok)
+    if ok:
+        return role or "restricted"
     _query_params_auth_del()
-    return False
+    return ""
 
 
 def persist_auth_token_to_url_after_login() -> None:
@@ -212,7 +300,10 @@ def persist_auth_token_to_url_after_login() -> None:
         except Exception:
             ttl = 30
         ttl = max(1, min(ttl, 90))
-        _query_params_auth_set(_make_auth_url_token(ttl_days=ttl))
+        role = st.session_state.get("auth_role", "restricted")
+        cred_hash = st.session_state.get("auth_cred_hash", "")
+        if cred_hash:
+            _query_params_auth_set(_make_auth_url_token(ttl_days=ttl, role=role, cred_hash=cred_hash))
     except Exception:
         pass
 
@@ -264,10 +355,13 @@ def show_login_page():
             login_button = st.button("Iniciar Sesión", type="primary", use_container_width=True)
         
         if login_button:
-            if check_password(password):
+            role, cred_hash = get_role_for_password(password)
+            if role:
                 # Establecer el estado de autenticación
                 st.session_state['authenticated'] = True
                 st.session_state['password_entered'] = password
+                st.session_state["auth_role"] = role
+                st.session_state["auth_cred_hash"] = cred_hash
                 persist_auth_token_to_url_after_login()
                 # Mostrar mensaje de éxito
                 st.success("✅ Contraseña correcta!")
@@ -290,12 +384,18 @@ if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 
 if not st.session_state['authenticated']:
-    if try_restore_session_auth_from_url():
+    _restored_role = try_restore_session_auth_from_url()
+    if _restored_role:
         st.session_state['authenticated'] = True
+        st.session_state["auth_role"] = _restored_role
 
 if not st.session_state['authenticated']:
     show_login_page()
     st.stop()
+
+# Rol efectivo (por defecto admin si falta, por compatibilidad)
+USER_ROLE = st.session_state.get("auth_role", "admin") or "admin"
+IS_ADMIN = USER_ROLE == "admin"
 
 # Sesiones antiguas sin token en URL: intentar añadirlo una vez (evita bucles de safe_rerun si la URL no se sincroniza)
 if st.session_state.get("authenticated") and not _query_params_auth_get():
@@ -323,6 +423,8 @@ with col_logout:
         # Limpiar otros estados relacionados si es necesario
         if 'password_entered' in st.session_state:
             del st.session_state['password_entered']
+        st.session_state.pop("auth_role", None)
+        st.session_state.pop("auth_cred_hash", None)
         st.session_state.pop("_did_write_auth_query", None)
         _query_params_auth_del()
         safe_rerun()
@@ -2491,80 +2593,112 @@ def show_context(df, file, block_idx, query="", context=4):
         )
 
 
-# --- UI: Audio splitting ---
-st.header("1) Cortar audio (.m4a) en fragmentos de 30 minutos")
-col1, col2 = st.columns([2,1])
-with col1:
-    uploaded = st.file_uploader("Sube un archivo de audio", type=["m4a","mp3","wav","ogg","flac"])
-    segment_minutes = st.number_input("Duración de cada fragmento (minutos)", min_value=1, max_value=180, value=30)
-    st.caption(
-        "No hay cierre de sesión automático en esta app. Si pasan muchos minutos sin interactuar, "
-        "Streamlit Cloud puede abrir una sesión nueva (websocket inactivo, reinicio del contenedor, etc.): "
-        "se pierde el login y el archivo del subidor; conviene procesar enseguida tras subir."
-    )
-    if uploaded and st.button("Procesar audio y generar fragmentos"):
-        audio_bytes = uploaded.read()
-        with st.spinner("Cortando audio... (puede tardar 1–2 min)"):
+# --- UI: Audio splitting (solo admin) ---
+if IS_ADMIN:
+    st.header("1) Cortar audio (.m4a) en fragmentos de 30 minutos")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        uploaded = st.file_uploader("Sube un archivo de audio", type=["m4a", "mp3", "wav", "ogg", "flac"])
+        segment_minutes = st.number_input(
+            "Duración de cada fragmento (minutos)", min_value=1, max_value=180, value=30
+        )
+        st.caption(
+            "No hay cierre de sesión automático en esta app. Si pasan muchos minutos sin interactuar, "
+            "Streamlit Cloud puede abrir una sesión nueva (websocket inactivo, reinicio del contenedor, etc.): "
+            "se pierde el login y el archivo del subidor; conviene procesar enseguida tras subir."
+        )
+        if uploaded and st.button("Procesar audio y generar fragmentos"):
+            audio_bytes = uploaded.read()
+            with st.spinner("Cortando audio... (puede tardar 1–2 min)"):
+                try:
+                    clear_audio_download_state()
+                    zpath, zip_name = split_audio_to_zip_path(
+                        audio_bytes,
+                        uploaded.name,
+                        segment_seconds=int(segment_minutes * 60),
+                    )
+                    del audio_bytes
+                    gc.collect()
+                    st.session_state["audio_zip_path"] = zpath
+                    st.session_state["audio_zip_download_name"] = zip_name
+                    st.success(
+                        "Listo: descarga el ZIP con todos los fragmentos. "
+                        "Tras descargar, pulsa «Quitar resultados» para liberar memoria en el servidor."
+                    )
+                except ImportError as e:
+                    st.error(f"❌ Error de importación: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Error al procesar el audio: {type(e).__name__}: {str(e)}")
+                    st.caption(
+                        "Si el archivo es largo o muy pesado, prueba con uno más corto o hazlo en local con la app."
+                    )
+
+    with col2:
+        st.markdown(
+            """
+        **Importante**:
+        - Soporta archivos de hasta ~100 MB (p. ej. 96 MB).
+        - Los fragmentos se ofrecen en **un solo ZIP** para evitar reinicios por falta de memoria en la nube.
+        - [Cortar audio online](https://mp3cut.net/es)
+        - [Transcripción automática](https://turboscribe.ai/)
+        - [ffmpeg](https://www.gyan.dev/ffmpeg/builds)
+        """,
+            unsafe_allow_html=True,
+        )
+
+    # Descarga fuera de col1: evita conflictos de orden de widgets con file_uploader/botón procesar
+    if st.session_state.get("audio_zip_path"):
+        st.markdown("### Descargar fragmentos (ZIP)")
+        zpath = st.session_state["audio_zip_path"]
+        zdn = st.session_state.get("audio_zip_download_name", "fragmentos.zip")
+        if os.path.isfile(zpath):
             try:
-                clear_audio_download_state()
-                zpath, zip_name = split_audio_to_zip_path(
-                    audio_bytes,
-                    uploaded.name,
-                    segment_seconds=int(segment_minutes * 60),
+                with open(zpath, "rb") as zf:
+                    zip_bytes = zf.read()
+                st.download_button(
+                    "Descargar ZIP con todos los fragmentos",
+                    data=zip_bytes,
+                    file_name=zdn,
+                    key="download_audio_zip_file",
+                    mime="application/zip",
                 )
-                del audio_bytes
-                gc.collect()
-                st.session_state["audio_zip_path"] = zpath
-                st.session_state["audio_zip_download_name"] = zip_name
-                st.success(
-                    "Listo: descarga el ZIP con todos los fragmentos. "
-                    "Tras descargar, pulsa «Quitar resultados» para liberar memoria en el servidor."
-                )
-            except ImportError as e:
-                st.error(f"❌ Error de importación: {str(e)}")
             except Exception as e:
-                st.error(f"❌ Error al procesar el audio: {type(e).__name__}: {str(e)}")
-                st.caption("Si el archivo es largo o muy pesado, prueba con uno más corto o hazlo en local con la app.")
+                st.error(f"No se pudo preparar la descarga: {type(e).__name__}: {e}")
+        else:
+            st.warning("El archivo temporal ya no está disponible. Vuelve a procesar el audio.")
+        if st.button("Quitar resultados", key="clear_audio_zip_file"):
+            clear_audio_download_state()
+            safe_rerun()
+    elif "audio_segments" in st.session_state:
+        st.markdown("### Descargar fragmentos (formato antiguo)")
+        for seg in st.session_state["audio_segments"]:
+            st.download_button(f"Descargar {seg['name']}", data=seg["bytes"], file_name=seg["name"])
 
-with col2:
-    st.markdown("""
-    **Importante**:
-    - Soporta archivos de hasta ~100 MB (p. ej. 96 MB).
-    - Los fragmentos se ofrecen en **un solo ZIP** para evitar reinicios por falta de memoria en la nube.
-    - [Cortar audio online](https://mp3cut.net/es)
-    - [Transcripción automática](https://turboscribe.ai/)
-    - [ffmpeg](https://www.gyan.dev/ffmpeg/builds)
-    """, unsafe_allow_html=True)
+    st.markdown("---")
 
-# Descarga fuera de col1: evita conflictos de orden de widgets con file_uploader/botón procesar
-if st.session_state.get("audio_zip_path"):
-    st.markdown("### Descargar fragmentos (ZIP)")
-    zpath = st.session_state["audio_zip_path"]
-    zdn = st.session_state.get("audio_zip_download_name", "fragmentos.zip")
-    if os.path.isfile(zpath):
-        try:
-            with open(zpath, "rb") as zf:
-                zip_bytes = zf.read()
-            st.download_button(
-                "Descargar ZIP con todos los fragmentos",
-                data=zip_bytes,
-                file_name=zdn,
-                key="download_audio_zip_file",
-                mime="application/zip",
-            )
-        except Exception as e:
-            st.error(f"No se pudo preparar la descarga: {type(e).__name__}: {e}")
-    else:
-        st.warning("El archivo temporal ya no está disponible. Vuelve a procesar el audio.")
-    if st.button("Quitar resultados", key="clear_audio_zip_file"):
-        clear_audio_download_state()
-        safe_rerun()
-elif "audio_segments" in st.session_state:
-    st.markdown("### Descargar fragmentos (formato antiguo)")
-    for seg in st.session_state["audio_segments"]:
-        st.download_button(f"Descargar {seg['name']}", data=seg["bytes"], file_name=seg["name"])
 
-st.markdown("---")
+def _get_default_repo_url_for_restricted() -> str:
+    """Repo fijo para usuarios restringidos (no se muestra en UI)."""
+    try:
+        if "TRANSCRIPTIONS_REPO_URL" in st.secrets:
+            return str(st.secrets["TRANSCRIPTIONS_REPO_URL"]).strip()
+        if "default" in st.secrets and "TRANSCRIPTIONS_REPO_URL" in st.secrets["default"]:
+            return str(st.secrets["default"]["TRANSCRIPTIONS_REPO_URL"]).strip()
+        if hasattr(st.secrets, "get"):
+            return str(st.secrets.get("TRANSCRIPTIONS_REPO_URL", "") or "").strip()
+    except Exception:
+        pass
+    env = os.getenv("TRANSCRIPTIONS_REPO_URL", "").strip()
+    return env
+
+
+def _mask_secret_value(v: str) -> str:
+    s = str(v or "")
+    if not s:
+        return ""
+    if len(s) <= 4:
+        return "*" * len(s)
+    return f"{s[:2]}{'*' * max(0, len(s) - 4)}{s[-2:]}"
 
 
 # --- UI: Transcriptions loader ---
@@ -2573,121 +2707,99 @@ _resume_msg = st.session_state.pop("_transcript_resume_notice", None)
 if _resume_msg:
     st.info(_resume_msg)
 
-# Mostrar estado del token
-headers_token, token_value = _get_github_headers()
-token_status = "✅ Configurado" if token_value else "❌ No configurado"
-with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False):
-    if token_value:
-        st.success("Token GitHub detectado correctamente")
-        # Mostrar información del token (solo primeros y últimos caracteres por seguridad)
-        token_preview = f"{token_value[:7]}...{token_value[-4:]}" if len(token_value) > 11 else "***"
-        st.code(f"Token: {token_preview} (longitud: {len(token_value)} caracteres)")
-        
-        # Botón para probar el token
-        if st.button("🧪 Probar Token", key="test_token"):
-            with st.spinner("Probando token con la API de GitHub..."):
-                try:
-                    test_resp = requests.get("https://api.github.com/user", headers=headers_token)
-                    if test_resp.status_code == 200:
-                        user_info = test_resp.json()
-                        st.success(f"✅ Token válido! Conectado como: {user_info.get('login', 'Usuario')}")
-                        st.json({
-                            "Usuario": user_info.get('login', 'N/A'),
-                            "Nombre": user_info.get('name', 'N/A'),
-                            "Email": user_info.get('email', 'N/A'),
-                            "Tipo": user_info.get('type', 'N/A')
-                        })
-                        
-                        # Mostrar información de rate limits
-                        limit = test_resp.headers.get("X-RateLimit-Limit", "N/A")
-                        remaining = test_resp.headers.get("X-RateLimit-Remaining", "N/A")
-                        reset_time = test_resp.headers.get("X-RateLimit-Reset", "")
-                        
-                        st.markdown("**📊 Estado de Rate Limits:**")
-                        if limit != "N/A":
-                            if limit == "60":
-                                st.warning(f"⚠️ Límite: {limit}/hora - El token NO se está usando correctamente")
-                                st.info("💡 Verifica que el token esté correctamente configurado en los secrets")
-                            elif limit == "5000":
-                                st.success(f"✅ Límite: {limit}/hora - Token funcionando correctamente")
-                            else:
-                                st.info(f"ℹ️ Límite: {limit}/hora")
-                            
-                            if remaining != "N/A":
-                                st.info(f"Peticiones restantes: {remaining}/{limit}")
-                            
-                            if reset_time:
-                                try:
-                                    from datetime import datetime
-                                    reset_timestamp = int(reset_time)
-                                    reset_datetime = datetime.fromtimestamp(reset_timestamp)
-                                    st.caption(f"Se restablece: {reset_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
-                                except:
-                                    pass
-                    elif test_resp.status_code == 401:
-                        st.error("❌ Token inválido o expirado. Verifica que el token sea correcto.")
-                    else:
-                        st.warning(f"⚠️ Respuesta inesperada: {test_resp.status_code}")
-                        st.text(test_resp.text[:200])
-                except Exception as e:
-                    st.error(f"❌ Error al probar el token: {str(e)}")
-        
-        st.info("💡 Si tienes problemas de acceso, verifica que el token tenga permisos de **repo** para repositorios privados.")
-        
-        # Información sobre rate limits
-        st.markdown("---")
-        st.markdown("**📊 Límites de la API de GitHub:**")
-        st.markdown("- Sin token: 60 peticiones/hora")
-        st.markdown("- Con token: 5,000 peticiones/hora (~83 peticiones/minuto)")
-        st.markdown("- La aplicación usa caché (30 minutos) para reducir peticiones")
-        st.markdown("- Delay automático entre peticiones cuando hay muchos archivos")
-        st.warning("⚠️ **Importante:** Con 5000 peticiones/hora, evita recargar la página repetidamente. El caché ayuda pero cada recarga puede hacer múltiples peticiones.")
-        
-        # Botón para limpiar caché
-        if st.button("🗑️ Limpiar Caché", key="clear_cache"):
-            # Limpiar todos los cachés de GitHub en session_state
-            keys_to_remove = [
-                k
-                for k in st.session_state.keys()
-                if isinstance(k, str)
-                and (k.startswith("github_cache_") or k.startswith("github_txt_resume::"))
-            ]
-            for key in keys_to_remove:
-                del st.session_state[key]
-            # Limpiar también el caché del DataFrame de Streamlit
-            try:
-                _load_dataframe_from_github.clear()
-            except:
-                pass
-            st.success("✅ Caché limpiado. Las próximas peticiones serán frescas.")
-    else:
-        st.warning("No se encontró GITHUB_TOKEN en los secrets ni en variables de entorno.")
-        st.markdown("""
-        **Para configurar el token en Streamlit Cloud:**
-        1. Ve a tu aplicación en Streamlit Cloud
-        2. Haz clic en "Settings" → "Secrets"
-        3. Agrega:
-           ```toml
-           [default]
-           GITHUB_TOKEN = "tu_token_aqui"
-           ```
-           O sin [default]:
-           ```toml
-           GITHUB_TOKEN = "tu_token_aqui"
-           ```
-        4. Guarda los cambios
-        
-        **Para crear un token en GitHub:**
-        1. Ve a GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
-        2. Genera un nuevo token con permisos de **repo** (para repositorios privados)
-        3. Copia el token y pégalo en los secrets de Streamlit Cloud
-        """)
+if IS_ADMIN:
+    admin_tab_main, admin_tab_passwords = st.tabs(["Admin", "Accesos restringidos"])
 
-repo_col, path_col = st.columns([2, 1])
-with repo_col:
-    gh_url = st.text_input("Repo público GitHub", value="https://github.com/jarconett/c_especiales/")
-with path_col:
-    custom_path = st.text_input("Ruta personalizada (opcional)", placeholder="ej: transcripciones, spoti, docs", help="Deja vacío para buscar en 'transcripciones' y 'spoti' automáticamente")
+    with admin_tab_passwords:
+        st.subheader("Contraseñas restringidas activas")
+        vals = _get_restricted_password_values()
+        if not vals:
+            st.info("No hay `RESTRICTED_PASSWORDS` definido en Secrets (o está vacío).")
+        else:
+            rows = []
+            for i, pv in enumerate(vals, start=1):
+                pv_s = str(pv or "").strip()
+                is_hash = len(pv_s) == 64 and all(c in "0123456789abcdef" for c in pv_s.lower())
+                rows.append(
+                    {
+                        "#": i,
+                        "tipo": "hash SHA256" if is_hash else "texto plano",
+                        "valor (enmascarado)": _mask_secret_value(pv_s),
+                        "longitud": len(pv_s),
+                    }
+                )
+            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            st.caption(
+                "Para revocar un acceso, elimina su entrada de `RESTRICTED_PASSWORDS` en Streamlit Cloud → Settings → Secrets. "
+                "Los enlaces con `st_auth` se invalidan automáticamente."
+            )
+
+    with admin_tab_main:
+        # Mostrar estado del token (solo admin)
+        headers_token, token_value = _get_github_headers()
+        token_status = "✅ Configurado" if token_value else "❌ No configurado"
+        with st.expander(f"🔑 Estado del Token GitHub: {token_status}", expanded=False):
+            if token_value:
+                st.success("Token GitHub detectado correctamente")
+                # Mostrar información del token (solo primeros y últimos caracteres por seguridad)
+                token_preview = f"{token_value[:7]}...{token_value[-4:]}" if len(token_value) > 11 else "***"
+                st.code(f"Token: {token_preview} (longitud: {len(token_value)} caracteres)")
+                
+                # Botón para probar el token
+                if st.button("🧪 Probar Token", key="test_token"):
+                    with st.spinner("Probando token con la API de GitHub..."):
+                        try:
+                            test_resp = requests.get("https://api.github.com/user", headers=headers_token)
+                            if test_resp.status_code == 200:
+                                user_info = test_resp.json()
+                                st.success(f"✅ Token válido! Conectado como: {user_info.get('login', 'Usuario')}")
+                                st.json({
+                                    "Usuario": user_info.get('login', 'N/A'),
+                                    "Nombre": user_info.get('name', 'N/A'),
+                                    "Email": user_info.get('email', 'N/A'),
+                                    "Tipo": user_info.get('type', 'N/A')
+                                })
+                            elif test_resp.status_code == 401:
+                                st.error("❌ Token inválido o expirado. Verifica que el token sea correcto.")
+                            else:
+                                st.warning(f"⚠️ Respuesta inesperada: {test_resp.status_code}")
+                                st.text(test_resp.text[:200])
+                        except Exception as e:
+                            st.error(f"❌ Error al probar el token: {str(e)}")
+                
+                st.warning("Evita recargar la página repetidamente; el caché ayuda pero cada recarga puede hacer múltiples peticiones.")
+                
+                # Botón para limpiar caché
+                if st.button("🗑️ Limpiar Caché", key="clear_cache"):
+                    keys_to_remove = [
+                        k
+                        for k in st.session_state.keys()
+                        if isinstance(k, str)
+                        and (k.startswith("github_cache_") or k.startswith("github_txt_resume::"))
+                    ]
+                    for key in keys_to_remove:
+                        del st.session_state[key]
+                    try:
+                        _load_dataframe_from_github.clear()
+                    except Exception:
+                        pass
+                    st.success("✅ Caché limpiado. Las próximas peticiones serán frescas.")
+            else:
+                st.warning("No se encontró GITHUB_TOKEN en los secrets ni en variables de entorno.")
+
+if IS_ADMIN:
+    repo_col, path_col = st.columns([2, 1])
+    with repo_col:
+        gh_url = st.text_input("Repo público GitHub", value="https://github.com/jarconett/c_especiales/")
+    with path_col:
+        custom_path = st.text_input(
+            "Ruta personalizada (opcional)",
+            placeholder="ej: transcripciones, spoti, docs",
+            help="Deja vacío para buscar en 'transcripciones' y 'spoti' automáticamente",
+        )
+else:
+    gh_url = _get_default_repo_url_for_restricted() or "https://github.com/jarconett/c_especiales/"
+    custom_path = ""
 
 # Guardar URL del repositorio en session_state para uso posterior
 if gh_url:
@@ -2721,11 +2833,11 @@ if gh_url:
     # Mostrar el radio arriba (antes de cargar el DataFrame) para que se vea
     # la opción incluso mientras se construye al inicio.
     time_window_label = st.radio(
-        "Incluir archivos en el DataFrame (regeneración):",
+        "Rango de transcripciones:",
         options=list(_DF_TIME_WINDOW_LABEL_TO_KEY.keys()),
         key="df_time_window_radio",
         on_change=_on_df_time_window_radio_change,
-        help="Filtra qué archivos de 'transcripciones' y 'spoti' se incluyen al regenerar el DataFrame. Cada cambio se guarda en data/settings.json en GitHub para la próxima carga.",
+        help="Configura el rango usado al regenerar el DataFrame y al recargar transcripciones.",
     )
     time_window_key = _DF_TIME_WINDOW_LABEL_TO_KEY.get(time_window_label, "season")
 
@@ -3055,7 +3167,7 @@ if 'trans_df' in st.session_state:
             res = res[res['speaker'] == speaker_filter]
 
         if res.empty:
-            st.warning("No se encontraron coincidencias en transcripciones ni en spoti.")
+            st.warning("No se encontraron coincidencias.")
         else:
             # Contar resultados por carpeta
             if 'folder' in res.columns:
@@ -3065,76 +3177,80 @@ if 'trans_df' in st.session_state:
                 res_trans = pd.DataFrame()
                 res_spoti = pd.DataFrame()
             
-            if not res_trans.empty and not res_spoti.empty:
-                st.success(f"Encontradas {len(res)} coincidencias: {len(res_trans)} en transcripciones, {len(res_spoti)} en spoti")
-            elif not res_trans.empty:
-                st.success(f"Encontradas {len(res)} coincidencias en transcripciones")
-            elif not res_spoti.empty:
-                st.success(f"Encontradas {len(res)} coincidencias en spoti (no se encontraron en transcripciones)")
+            if IS_ADMIN:
+                if not res_trans.empty and not res_spoti.empty:
+                    st.success(f"Encontradas {len(res)} coincidencias: {len(res_trans)} en transcripciones, {len(res_spoti)} en spoti")
+                elif not res_trans.empty:
+                    st.success(f"Encontradas {len(res)} coincidencias en transcripciones")
+                elif not res_spoti.empty:
+                    st.success(f"Encontradas {len(res)} coincidencias en spoti (no se encontraron en transcripciones)")
+                else:
+                    st.success(f"Encontradas {len(res)} coincidencias")
             else:
                 st.success(f"Encontradas {len(res)} coincidencias")
             
             display_results_table(res[['file', 'speaker', 'match_preview']])
             for i, row in res.iterrows():
                 folder_info = ""
-                if 'folder' in row and pd.notna(row.get('folder')):
+                if IS_ADMIN and 'folder' in row and pd.notna(row.get('folder')):
                     folder_name = str(row['folder']).upper()
                     folder_info = f" [{folder_name}]"
                 with st.expander(f"{i+1}. {row['speaker']} — {row['file']}{folder_info} (bloque {row['block_index']})", expanded=False):
                     show_context(df, row['file'], row['block_index'], query=query, context=4)
 
-st.markdown("---")
+if IS_ADMIN:
+    st.markdown("---")
 
-# --- UI: Validación de nombres de archivos ---
-st.header("4) Validar nombres de archivo")
-if 'trans_files' in st.session_state and st.session_state['trans_files']:
-    if st.button("🧪 Validar fechas en nombres", key="validate_file_dates"):
-        files_loaded = st.session_state.get('trans_files', [])
-        invalid_files = get_files_with_invalid_dates(files_loaded)
-        if not invalid_files:
-            st.success("✅ Todos los archivos cargados tienen fecha válida al inicio del nombre (DDMMYYYY).")
-        else:
-            st.warning(f"⚠️ Se detectaron {len(invalid_files)} archivos con nombre inválido para fecha.")
-            invalid_df = pd.DataFrame(invalid_files)
-            invalid_df = invalid_df.rename(columns={"folder": "Carpeta", "name": "Archivo"})
-            st.dataframe(invalid_df, use_container_width=True)
-else:
-    st.info("ℹ️ Primero carga/regenera el DataFrame para validar nombres de archivo.")
-
-st.markdown("---")
-
-# --- UI: Calendario de archivos ---
-st.header("5) 📅 Calendario de transcripciones")
-if 'trans_files' in st.session_state and st.session_state['trans_files']:
-    files = st.session_state['trans_files']
-    files_by_date = get_files_by_date(files)
-    
-    if files_by_date:
-        st.info(f"📊 Se encontraron archivos en {len(files_by_date)} fechas diferentes")
-        
-        # Filtros por origen
-        st.markdown("### 🔍 Filtros")
-        filter_col1, filter_col2 = st.columns(2)
-        with filter_col1:
-            show_transcripciones = st.checkbox(
-                "📝 Mostrar archivos de Transcripciones", 
-                value=True, 
-                key="filter_transcripciones",
-                help="Archivos de la carpeta 'transcripciones' de GitHub"
-            )
-        with filter_col2:
-            show_spoti = st.checkbox(
-                "🎵 Mostrar archivos de Spoti", 
-                value=True, 
-                key="filter_spoti",
-                help="Archivos de la carpeta 'spoti' de GitHub"
-            )
-        
-        if not show_transcripciones and not show_spoti:
-            st.warning("⚠️ Debes seleccionar al menos un origen para mostrar.")
-        else:
-            display_calendar(files_by_date, show_transcripciones, show_spoti)
+    # --- UI: Validación de nombres de archivos ---
+    st.header("4) Validar nombres de archivo")
+    if 'trans_files' in st.session_state and st.session_state['trans_files']:
+        if st.button("🧪 Validar fechas en nombres", key="validate_file_dates"):
+            files_loaded = st.session_state.get('trans_files', [])
+            invalid_files = get_files_with_invalid_dates(files_loaded)
+            if not invalid_files:
+                st.success("✅ Todos los archivos cargados tienen fecha válida al inicio del nombre (DDMMYYYY).")
+            else:
+                st.warning(f"⚠️ Se detectaron {len(invalid_files)} archivos con nombre inválido para fecha.")
+                invalid_df = pd.DataFrame(invalid_files)
+                invalid_df = invalid_df.rename(columns={"folder": "Carpeta", "name": "Archivo"})
+                st.dataframe(invalid_df, use_container_width=True)
     else:
-        st.warning("⚠️ No se pudieron extraer fechas de los nombres de archivos. Verifica que sigan el formato DDMMYYYY (ej: 30012025 part1.txt)")
-else:
-    st.info("ℹ️ Primero carga los archivos de transcripciones desde GitHub en la sección 2)")
+        st.info("ℹ️ Primero carga/regenera el DataFrame para validar nombres de archivo.")
+
+    st.markdown("---")
+
+    # --- UI: Calendario de archivos ---
+    st.header("5) 📅 Calendario de transcripciones")
+    if 'trans_files' in st.session_state and st.session_state['trans_files']:
+        files = st.session_state['trans_files']
+        files_by_date = get_files_by_date(files)
+        
+        if files_by_date:
+            st.info(f"📊 Se encontraron archivos en {len(files_by_date)} fechas diferentes")
+            
+            # Filtros por origen
+            st.markdown("### 🔍 Filtros")
+            filter_col1, filter_col2 = st.columns(2)
+            with filter_col1:
+                show_transcripciones = st.checkbox(
+                    "📝 Mostrar archivos de Transcripciones", 
+                    value=True, 
+                    key="filter_transcripciones",
+                    help="Archivos de la carpeta 'transcripciones' de GitHub"
+                )
+            with filter_col2:
+                show_spoti = st.checkbox(
+                    "🎵 Mostrar archivos de Spoti", 
+                    value=True, 
+                    key="filter_spoti",
+                    help="Archivos de la carpeta 'spoti' de GitHub"
+                )
+            
+            if not show_transcripciones and not show_spoti:
+                st.warning("⚠️ Debes seleccionar al menos un origen para mostrar.")
+            else:
+                display_calendar(files_by_date, show_transcripciones, show_spoti)
+        else:
+            st.warning("⚠️ No se pudieron extraer fechas de los nombres de archivos. Verifica que sigan el formato DDMMYYYY (ej: 30012025 part1.txt)")
+    else:
+        st.info("ℹ️ Primero carga los archivos de transcripciones desde GitHub en la sección 2)")
