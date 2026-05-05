@@ -929,6 +929,50 @@ def _prune_session_logs_for_cred_today(cred_id: str, keep_last: int = 10) -> Non
         pass
 
 
+def _cred_id_to_password_label_for_admin(cred_id: str) -> str:
+    """
+    Solo para UI admin: devuelve una etiqueta de la credencial origen asociada a cred_id.
+    No requiere que guardemos contraseñas en los logs (repo público).
+    """
+    cid = str(cred_id or "").strip()
+    if not cid:
+        return ""
+    try:
+        # Admin
+        admin_secret = get_password_hash()
+        if admin_secret:
+            admin_secret_s = str(admin_secret).strip()
+            if len(admin_secret_s) == 64 and all(c in "0123456789abcdef" for c in admin_secret_s.lower()):
+                admin_cred_hash = admin_secret_s.lower()
+            else:
+                admin_cred_hash = hash_password(admin_secret_s)
+            if _hmac_tag(f"cred::{admin_cred_hash}") == cid:
+                return "ADMIN"
+    except Exception:
+        pass
+
+    # Restringidas (enmascaradas)
+    try:
+        vals = _get_restricted_password_values()
+    except Exception:
+        vals = []
+    for i, pv in enumerate(vals, start=1):
+        pv_s = str(pv or "").strip()
+        if not pv_s:
+            continue
+        if len(pv_s) == 64 and all(c in "0123456789abcdef" for c in pv_s.lower()):
+            ch = pv_s.lower()
+            masked = _mask_secret_value(pv_s)
+            kind = "hash"
+        else:
+            ch = hash_password(pv_s)
+            masked = _mask_secret_value(pv_s)
+            kind = "texto"
+        if _hmac_tag(f"cred::{ch}") == cid:
+            return f"RESTRICTED #{i} ({kind}) {masked}"
+    return ""
+
+
 def _github_list_dir(repo_url: str, path: str) -> tuple[list, str]:
     """
     Lista un directorio con contents API. Retorna (items, error_msg).
@@ -3118,6 +3162,36 @@ _SRC_URL_ERR = (
 )
 _SRC_SAVE_FAIL = "en GitHub" if IS_ADMIN else "en el repositorio"
 
+def _restricted_folder_suffix(folder_used: str) -> str:
+    """
+    En modo restringido, `folder_used` puede venir como:
+      "transcripciones, spoti | Último mes | filtrados: 52/52"
+    Queremos ocultar carpetas y quedarnos con lo que va tras el primer '|'.
+    """
+    s = str(folder_used or "").strip()
+    if not s:
+        return ""
+    if "|" not in s:
+        return ""
+    try:
+        parts = [p.strip() for p in s.split("|") if p.strip()]
+        # Si el primer token era carpeta(s), lo descartamos
+        if len(parts) >= 2:
+            return " | ".join(parts[1:])
+        return ""
+    except Exception:
+        return ""
+
+def _fmt_df_summary_for_ui(df_len: int, files_len: int, folder_used: str, prefix: str) -> str:
+    """
+    Mensaje final de carga/regeneración que evita mencionar carpetas en restricted.
+    """
+    if IS_ADMIN:
+        return f"{prefix}: {df_len} bloques desde carpeta '{folder_used}' ({files_len} archivos)"
+    suffix = _restricted_folder_suffix(folder_used)
+    extra = f" | {suffix}" if suffix else ""
+    return f"{prefix}: {df_len} bloques{extra} ({files_len} archivos)"
+
 _resume_msg = st.session_state.pop("_transcript_resume_notice", None)
 if _resume_msg:
     st.info(_resume_msg)
@@ -3337,9 +3411,12 @@ if gh_url:
                                 eta_str = f" | ETA ~ {m}m {s}s"
                             else:
                                 eta_str = f" | ETA ~ {int(remaining)}s"
-                        status_placeholder.text(
-                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
-                        )
+                        if IS_ADMIN:
+                            status_placeholder.text(
+                                f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
+                            )
+                        else:
+                            status_placeholder.text(f"Incorporando archivo {current} de {total}...{eta_str}")
                     except Exception:
                         pass
 
@@ -3364,7 +3441,8 @@ if gh_url:
                         time_info = f" | Descarga: {times.get('download_time', 0):.1f}s, Despickle: {times.get('pickle_time', 0):.1f}s"
                     
                     if status == "session_cached":
-                        st.success(f"⚡⚡ Carga instantánea desde session_state: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.2f}s")
+                        msg = _fmt_df_summary_for_ui(len(df), len(files), folder_used, "⚡⚡ Carga instantánea desde session_state")
+                        st.success(f"{msg} - Tiempo: {elapsed_time:.2f}s")
                     elif status == "cached":
                         # Si viene del caché de Streamlit, debería ser muy rápido (< 5s)
                         cache_source = (
@@ -3372,18 +3450,26 @@ if gh_url:
                             if elapsed_time < 5
                             else f"caché (pero tardó {_SRC_DOWNLOADING})"
                         )
-                        st.success(f"⚡ Carga desde {cache_source}: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo total: {elapsed_time:.1f}s{time_info}")
+                        msg = _fmt_df_summary_for_ui(len(df), len(files), folder_used, f"⚡ Carga desde {cache_source}")
+                        st.success(f"{msg} - Tiempo total: {elapsed_time:.1f}s{time_info}")
                     elif status == "regenerated":
-                        st.success(f"🔄 DataFrame regenerado: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.1f}s{time_info}")
+                        msg = _fmt_df_summary_for_ui(len(df), len(files), folder_used, "🔄 DataFrame regenerado")
+                        st.success(f"{msg} - Tiempo: {elapsed_time:.1f}s{time_info}")
                     elif status == "first_load":
-                        st.success(f"📥 {_SRC_FIRST_LOAD}: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.1f}s{time_info}")
+                        msg = _fmt_df_summary_for_ui(len(df), len(files), folder_used, f"📥 {_SRC_FIRST_LOAD}")
+                        st.success(f"{msg} - Tiempo: {elapsed_time:.1f}s{time_info}")
                     else:
-                        st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(df)} bloques - Tiempo: {elapsed_time:.1f}s{time_info}")
+                        msg = _fmt_df_summary_for_ui(len(df), len(files), folder_used, "Carga completada")
+                        st.success(f"{msg} - Tiempo: {elapsed_time:.1f}s{time_info}")
                 else:
                     if error_msg:
                         st.error(f"❌ {error_msg}")
                     else:
-                        st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+                        st.warning(
+                            "No se encontraron archivos .txt."
+                            if not IS_ADMIN
+                            else "No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'"
+                        )
             # Limpiar la bandera después de cargar
             if 'loading_dataframe' in st.session_state:
                 del st.session_state['loading_dataframe']
@@ -3430,9 +3516,12 @@ with button_col1:
                                 eta_str = f" | ETA ~ {m}m {s}s"
                             else:
                                 eta_str = f" | ETA ~ {int(remaining)}s"
-                        status_placeholder.text(
-                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
-                        )
+                        if IS_ADMIN:
+                            status_placeholder.text(
+                                f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
+                            )
+                        else:
+                            status_placeholder.text(f"Incorporando archivo {current} de {total}...{eta_str}")
                     except Exception:
                         pass
 
@@ -3451,18 +3540,22 @@ with button_col1:
                         "df_time_window_saved_key", "season"
                     )
                     if status == "cached":
-                        st.success(f"⚡ Carga rápida desde caché: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                        st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "⚡ Carga rápida desde caché"))
                     elif status == "regenerated":
-                        st.success(f"🔄 DataFrame regenerado: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                        st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "🔄 DataFrame regenerado"))
                     elif status == "first_load":
-                        st.success(f"📥 Primera carga: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                        st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "📥 Primera carga"))
                     else:
-                        st.success(f"Recargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(df)} bloques")
+                        st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "Recarga completada"))
                 else:
                     if error_msg:
                         st.error(f"❌ {error_msg}")
                     else:
-                        st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+                        st.warning(
+                            "No se encontraron archivos .txt."
+                            if not IS_ADMIN
+                            else "No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'"
+                        )
         else:
             st.error(_SRC_URL_ERR)
 
@@ -3520,9 +3613,12 @@ with button_col2:
                                     eta_str = f" | ETA ~ {m}m {s}s"
                                 else:
                                     eta_str = f" | ETA ~ {int(remaining)}s"
-                            status_placeholder.text(
-                                f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
-                            )
+                            if IS_ADMIN:
+                                status_placeholder.text(
+                                    f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
+                                )
+                            else:
+                                status_placeholder.text(f"Incorporando archivo {current} de {total}...{eta_str}")
                         except Exception:
                             pass
 
@@ -3550,7 +3646,7 @@ with button_col2:
                                 f"El DataFrame se ha regenerado correctamente en esta sesión: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos), pero no se pudo guardar {_SRC_SAVE_FAIL}."
                             )
                         else:
-                            st.success(f"✅ DataFrame regenerado manualmente: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
+                            st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "✅ DataFrame regenerado manualmente"))
                     else:
                         if error_msg:
                             msg = str(error_msg)
@@ -3558,7 +3654,11 @@ with button_col2:
                                 msg = msg.replace("GitHub", "repositorio")
                             st.error(f"❌ {msg}")
                         else:
-                            st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
+                            st.warning(
+                                "No se encontraron archivos .txt."
+                                if not IS_ADMIN
+                                else "No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'"
+                            )
             finally:
                 DF_REGEN_LOCK = False
         else:
@@ -3700,6 +3800,7 @@ if IS_ADMIN:
             rows.append(
                 {
                     "role": s.get("role", ""),
+                    "contraseña origen": _cred_id_to_password_label_for_admin(s.get("cred_id", "")) if IS_ADMIN else "",
                     "cred_id": (s.get("cred_id", "") or "")[:10],
                     "última actividad (UTC)": s.get("last_seen_utc", ""),
                     "región (best-effort)": s.get("region", ""),
