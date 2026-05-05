@@ -422,6 +422,11 @@ if not IS_ADMIN:
     st.markdown(
         """
         <style>
+        /* En restricted, esconder menú/header/footer nativos */
+        #MainMenu { visibility: hidden; }
+        header { visibility: hidden; }
+        footer { visibility: hidden; display: none !important; }
+
         /* Ocultar enlaces directos a GitHub */
         a[href*="github.com"] { display: none !important; }
 
@@ -464,7 +469,6 @@ if not IS_ADMIN:
         /* Badge inferior Streamlit Cloud ("Hosted with Streamlit" / "Created by ...") */
         [data-testid="stDecoration"] { display: none !important; }
         [data-testid="stFooter"] { display: none !important; }
-        footer { display: none !important; }
         /* Clases típicas del badge (pueden variar según deploy) */
         [class*="viewerBadge"] { display: none !important; }
         [class^="viewerBadge"] { display: none !important; }
