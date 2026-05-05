@@ -3393,6 +3393,10 @@ if gh_url:
         ),
     )
     time_window_key = _DF_TIME_WINDOW_LABEL_TO_KEY.get(time_window_label, "season")
+    # Restringido: el valor efectivo debe ser siempre el del radio en esta ejecución.
+    # Si solo nos fiáramos de on_change, al pulsar «Cargar datos» a veces seguía «season».
+    if not IS_ADMIN:
+        st.session_state["df_time_window_saved_key"] = time_window_key
 
     _used_key = st.session_state.get(
         "df_time_window_last_used_key",
