@@ -1373,6 +1373,22 @@ _DF_TIME_WINDOW_LABEL_TO_KEY = {
 
 _DF_TIME_WINDOW_KEY_TO_LABEL = {v: k for k, v in _DF_TIME_WINDOW_LABEL_TO_KEY.items()}
 
+_DF_TIME_WINDOW_VALID_KEYS = frozenset({"last_1m", "last_2m", "last_6m", "season"})
+
+
+def _normalize_df_time_window_key(raw) -> str:
+    """
+    Convierte lo guardado en session_state / settings a una clave válida.
+    Si por error llega la etiqueta en español (p. ej. «Último mes»), mapea a last_1m;
+    si no, season (antes apply_time_window caía en temporada completa).
+    """
+    if raw is None:
+        return "season"
+    s = str(raw).strip()
+    if s in _DF_TIME_WINDOW_VALID_KEYS:
+        return s
+    return _DF_TIME_WINDOW_LABEL_TO_KEY.get(s, "season")
+
 
 def _on_df_time_window_radio_change():
     """Cada cambio en el radio guarda la preferencia en GitHub (data/settings.json) y en session_state."""
@@ -1998,9 +2014,7 @@ def load_transcriptions_from_github_optimized(
     Retorna (DataFrame, files, folder_used, status_message, error_message)
     status_message puede ser: "cached", "regenerated", "first_load", "error", "session_cached"
     """
-    tw = (time_window_key or "season").strip()
-    if tw not in ("last_1m", "last_2m", "last_6m", "season"):
-        tw = "season"
+    tw = _normalize_df_time_window_key(time_window_key)
 
     def _finish(df, files, folder_used, status, err=""):
         """Aplica la ventana temporal guardada al resultado (pickle puede traer todo el histórico)."""
@@ -2032,7 +2046,7 @@ def load_transcriptions_from_github_optimized(
     if df_cached.empty or load_error:
         # No hay DataFrame guardado o error al cargar, cargar desde cero
         files, folder_used, error_msg = load_transcriptions_from_github(
-            repo_url, custom_path, status_cb=status_cb
+            repo_url, custom_path, status_cb=status_cb, time_window_key=tw
         )
         if not files:
             if progress_cb:
@@ -2111,7 +2125,7 @@ def load_transcriptions_from_github_optimized(
     
     # Hay cambios, regenerar DataFrame
     files, folder_used, error_msg = load_transcriptions_from_github(
-        repo_url, custom_path, status_cb=status_cb
+        repo_url, custom_path, status_cb=status_cb, time_window_key=tw
     )
     if not files:
         # Si falla cargar archivos, usar DataFrame cacheado como fallback
@@ -2602,6 +2616,7 @@ def filter_files_by_time_window(files: List[dict], window_key: str) -> tuple[Lis
     Retorna (files_filtrados, stats)
     """
     import time as _time
+    window_key = _normalize_df_time_window_key(window_key)
     now = datetime.now()
 
     if window_key == "last_1m":
@@ -2661,9 +2676,7 @@ def apply_time_window_to_transcription_data(
     """
     if df is None or df.empty:
         return df if df is not None else pd.DataFrame(), files or [], {}
-    wk = (window_key or "season").strip()
-    if wk not in ("last_1m", "last_2m", "last_6m", "season"):
-        wk = "season"
+    wk = _normalize_df_time_window_key(window_key)
     if files:
         meta = [{"name": f.get("name", ""), "folder": f.get("folder", "")} for f in files]
     else:
@@ -3429,8 +3442,24 @@ if gh_url:
         df_existing = st.session_state.get('trans_df')
         files_existing = st.session_state.get('trans_files')
         if not df_existing.empty and files_existing:
-            # Los datos ya están cargados, no hacer nada
-            pass
+            # Si el usuario cambió el rango temporal, recalcular la vista desde df_cache (sin redescargar).
+            _cache_k = f"df_cache_{gh_url}"
+            if _cache_k in st.session_state:
+                _tw_cur = _normalize_df_time_window_key(
+                    st.session_state.get("df_time_window_saved_key", "season")
+                )
+                _tw_prev = st.session_state.get("df_time_window_last_used_key")
+                if _tw_prev != _tw_cur:
+                    _cd = st.session_state[_cache_k]
+                    _df_f = _cd.get("df")
+                    _fi_f = _cd.get("files", [])
+                    if _df_f is not None and not _df_f.empty:
+                        _dv, _fv, _stw = apply_time_window_to_transcription_data(
+                            _df_f, _fi_f, _tw_cur
+                        )
+                        st.session_state["trans_df"] = _dv
+                        st.session_state["trans_files"] = _fv
+                        st.session_state["df_time_window_last_used_key"] = _tw_cur
     # Nivel 2: Verificar caché adicional en session_state antes de descargar
     elif (IS_ADMIN or st.session_state.get("_restricted_user_confirmed_load")) and f"df_cache_{gh_url}" in st.session_state:
         cache_data = st.session_state[f"df_cache_{gh_url}"]
@@ -3439,7 +3468,9 @@ if gh_url:
         folder_cached = cache_data.get('folder', 'transcripciones')
         if df_cached is not None and not df_cached.empty:
             # Restaurar desde caché adicional (muy rápido, sin descargar)
-            _tw = st.session_state.get("df_time_window_saved_key", "season")
+            _tw = _normalize_df_time_window_key(
+                st.session_state.get("df_time_window_saved_key", "season")
+            )
             df_view, files_view, _stw = apply_time_window_to_transcription_data(
                 df_cached, files_cached, _tw
             )
@@ -3466,8 +3497,8 @@ if gh_url:
                 status_placeholder = st.empty()
 
                 # Qué ventana temporal se está usando ahora para construir el DataFrame
-                st.session_state['df_time_window_last_used_key'] = st.session_state.get(
-                    "df_time_window_saved_key", "season"
+                st.session_state['df_time_window_last_used_key'] = _normalize_df_time_window_key(
+                    st.session_state.get("df_time_window_saved_key", "season")
                 )
 
                 def _df_load_progress(p: float):
@@ -3512,7 +3543,9 @@ if gh_url:
                     custom_path.strip() if custom_path else "",
                     progress_cb=_df_load_progress,
                     status_cb=_df_load_status,
-                    time_window_key=st.session_state.get("df_time_window_saved_key", "season"),
+                    time_window_key=_normalize_df_time_window_key(
+                        st.session_state.get("df_time_window_saved_key", "season")
+                    ),
                 )
                 progress_bar.empty()
                 elapsed_time = time.time() - start_time
@@ -3617,14 +3650,16 @@ with button_col1:
                     custom_path.strip() if custom_path else "",
                     progress_cb=_df_reload_progress,
                     status_cb=_df_reload_status,
-                    time_window_key=st.session_state.get("df_time_window_saved_key", "season"),
+                    time_window_key=_normalize_df_time_window_key(
+                        st.session_state.get("df_time_window_saved_key", "season")
+                    ),
                 )
                 progress_bar.empty()
                 if not df.empty:
                     st.session_state['trans_files'] = files
                     st.session_state['trans_df'] = df
-                    st.session_state['df_time_window_last_used_key'] = st.session_state.get(
-                        "df_time_window_saved_key", "season"
+                    st.session_state['df_time_window_last_used_key'] = _normalize_df_time_window_key(
+                        st.session_state.get("df_time_window_saved_key", "season")
                     )
                     if status == "cached":
                         st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "⚡ Carga rápida desde caché"))
@@ -3648,7 +3683,12 @@ with button_col1:
 
 with button_col2:
     # Radio ya se muestra arriba; aquí solo reutilizamos el valor actual para regenerar.
-    time_window_key = st.session_state.get("df_time_window_saved_key", time_window_key if "time_window_key" in locals() else "season")
+    time_window_key = _normalize_df_time_window_key(
+        st.session_state.get(
+            "df_time_window_saved_key",
+            time_window_key if "time_window_key" in locals() else "season",
+        )
+    )
     time_window_label = _DF_TIME_WINDOW_KEY_TO_LABEL.get(time_window_key, "Última temporada")
 
     if st.button("🔧 Forzar Regeneración", key="force_regenerate", help="Fuerza la regeneración completa del DataFrame ignorando el caché. Útil si la detección automática de cambios falla."):
