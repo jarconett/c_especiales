@@ -460,6 +460,15 @@ if not IS_ADMIN:
 
         /* Último recurso: ocultar el contenedor de la esquina superior derecha */
         [data-testid="stToolbarActionButton"] { display: none !important; }
+
+        /* Badge inferior Streamlit Cloud ("Hosted with Streamlit" / "Created by ...") */
+        [data-testid="stDecoration"] { display: none !important; }
+        [data-testid="stFooter"] { display: none !important; }
+        footer { display: none !important; }
+        /* Clases típicas del badge (pueden variar según deploy) */
+        [class*="viewerBadge"] { display: none !important; }
+        [class^="viewerBadge"] { display: none !important; }
+        [class*="stAppFooter"] { display: none !important; }
         </style>
         """,
         unsafe_allow_html=True,
