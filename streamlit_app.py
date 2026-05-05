@@ -489,6 +489,7 @@ with col_logout:
         st.session_state.pop("auth_role", None)
         st.session_state.pop("auth_cred_hash", None)
         st.session_state.pop("_did_write_auth_query", None)
+        st.session_state.pop("_restricted_user_confirmed_load", None)
         _query_params_auth_del()
         safe_rerun()
 
@@ -3355,15 +3356,19 @@ if gh_url:
             st.session_state.pop(_k, None)
     # Cargar preferencia persistente del filtro temporal (una vez por sesión y repo)
     if "df_time_window_saved_key" not in st.session_state:
-        settings, _settings_err = _load_settings_from_github(gh_url)
-        saved_key = ""
-        try:
-            saved_key = str((settings or {}).get("df_time_window", "")).strip()
-        except Exception:
+        if IS_ADMIN:
+            settings, _settings_err = _load_settings_from_github(gh_url)
             saved_key = ""
-        if saved_key not in ("last_1m", "last_2m", "last_6m", "season"):
-            saved_key = "season"
-        st.session_state["df_time_window_saved_key"] = saved_key
+            try:
+                saved_key = str((settings or {}).get("df_time_window", "")).strip()
+            except Exception:
+                saved_key = ""
+            if saved_key not in ("last_1m", "last_2m", "last_6m", "season"):
+                saved_key = "season"
+            st.session_state["df_time_window_saved_key"] = saved_key
+        else:
+            # Restringido: sin petición a GitHub hasta «Cargar datos»; radio por defecto.
+            st.session_state["df_time_window_saved_key"] = "season"
         _key_to_label = {
             "last_1m": "Último mes",
             "last_2m": "Últimos 2 meses",
@@ -3371,7 +3376,8 @@ if gh_url:
             "season": "Última temporada",
         }
         if "df_time_window_radio" not in st.session_state:
-            st.session_state["df_time_window_radio"] = _key_to_label.get(saved_key, "Última temporada")
+            sk = st.session_state["df_time_window_saved_key"]
+            st.session_state["df_time_window_radio"] = _key_to_label.get(sk, "Última temporada")
 
     # Mostrar el radio arriba (antes de cargar el DataFrame) para que se vea
     # la opción incluso mientras se construye al inicio.
@@ -3392,10 +3398,27 @@ if gh_url:
         "df_time_window_last_used_key",
         st.session_state.get("df_time_window_saved_key", time_window_key),
     )
-    st.caption(f"DataFrame actual se construye con: {_DF_TIME_WINDOW_KEY_TO_LABEL.get(_used_key, time_window_label)}")
+    _has_df = (
+        "trans_df" in st.session_state
+        and isinstance(st.session_state.get("trans_df"), pd.DataFrame)
+        and not st.session_state["trans_df"].empty
+    )
+    if not IS_ADMIN and not st.session_state.get("_restricted_user_confirmed_load") and not _has_df:
+        st.caption(
+            f"Rango seleccionado: {_DF_TIME_WINDOW_KEY_TO_LABEL.get(time_window_key, time_window_label)}. "
+            "Pulsa «Cargar datos» para construir el DataFrame."
+        )
+    else:
+        st.caption(f"DataFrame actual se construye con: {_DF_TIME_WINDOW_KEY_TO_LABEL.get(_used_key, time_window_label)}")
+
+    if not IS_ADMIN and not _has_df:
+        if st.button("Cargar datos", key="restricted_load_df"):
+            st.session_state["_restricted_user_confirmed_load"] = True
+            safe_rerun()
 
 # Carga automática al inicio si no hay datos (optimizada)
 # PRIORIDAD: 1) session_state (trans_df/trans_files), 2) caché adicional (df_cache), 3) caché Streamlit, 4) GitHub
+# Restringido: niveles 2–4 solo tras pulsar «Cargar datos» (_restricted_user_confirmed_load).
 if gh_url:
     # Nivel 1: Si ya tenemos los datos en session_state estándar, no hacer nada (más rápido)
     if 'trans_df' in st.session_state and 'trans_files' in st.session_state:
@@ -3405,7 +3428,7 @@ if gh_url:
             # Los datos ya están cargados, no hacer nada
             pass
     # Nivel 2: Verificar caché adicional en session_state antes de descargar
-    elif f"df_cache_{gh_url}" in st.session_state:
+    elif (IS_ADMIN or st.session_state.get("_restricted_user_confirmed_load")) and f"df_cache_{gh_url}" in st.session_state:
         cache_data = st.session_state[f"df_cache_{gh_url}"]
         df_cached = cache_data.get('df')
         files_cached = cache_data.get('files', [])
@@ -3426,7 +3449,9 @@ if gh_url:
                 f"⚡⚡ Carga instantánea desde caché de sesión: {len(df_view)} bloques desde carpeta '{folder_cached}' ({len(files_view)} archivos){_extra}"
             )
     # Nivel 3 y 4: Cargar desde caché de Streamlit o GitHub
-    elif 'trans_files' not in st.session_state or 'trans_df' not in st.session_state:
+    elif (IS_ADMIN or st.session_state.get("_restricted_user_confirmed_load")) and (
+        'trans_files' not in st.session_state or 'trans_df' not in st.session_state
+    ):
         # Verificar si ya se está cargando para evitar ejecuciones múltiples
         if 'loading_dataframe' not in st.session_state:
             st.session_state['loading_dataframe'] = True
