@@ -425,6 +425,13 @@ if not IS_ADMIN:
         /* Ocultar enlaces directos a GitHub */
         a[href*="github.com"] { display: none !important; }
 
+        /* Ocultar enlaces a Streamlit/Streamlit Cloud y perfiles (p.ej. jarconett) */
+        a[href*="streamlit.io"] { display: none !important; }
+        a[href*="streamlit.app"] { display: none !important; }
+        a[href*="streamlit.com"] { display: none !important; }
+        a[href*="share.streamlit.io"] { display: none !important; }
+        a[href*="streamlit.cloud"] { display: none !important; }
+
         /* Ocultar botones Fork/GitHub (Streamlit Cloud toolbar) */
         button[aria-label*="Fork"], button[title*="Fork"] { display: none !important; }
         button[aria-label*="GitHub"], button[title*="GitHub"] { display: none !important; }
@@ -439,6 +446,11 @@ if not IS_ADMIN:
 
         /* Toolbar superior (si los iconos vienen dentro del header/toolbar) */
         [data-testid="stToolbar"] a[href*="github.com"],
+        [data-testid="stToolbar"] a[href*="streamlit.io"],
+        [data-testid="stToolbar"] a[href*="streamlit.app"],
+        [data-testid="stToolbar"] a[href*="streamlit.com"],
+        [data-testid="stToolbar"] a[href*="share.streamlit.io"],
+        [data-testid="stToolbar"] a[href*="streamlit.cloud"],
         [data-testid="stToolbar"] button[aria-label*="Fork"],
         [data-testid="stToolbar"] button[aria-label*="GitHub"],
         [data-testid="stToolbar"] a[aria-label*="Fork"],
