@@ -422,9 +422,32 @@ if not IS_ADMIN:
     st.markdown(
         """
         <style>
+        /* Ocultar enlaces directos a GitHub */
         a[href*="github.com"] { display: none !important; }
+
+        /* Ocultar botones Fork/GitHub (Streamlit Cloud toolbar) */
         button[aria-label*="Fork"], button[title*="Fork"] { display: none !important; }
+        button[aria-label*="GitHub"], button[title*="GitHub"] { display: none !important; }
+        a[aria-label*="Fork"], a[title*="Fork"] { display: none !important; }
+        a[aria-label*="GitHub"], a[title*="GitHub"] { display: none !important; }
+
+        /* Variantes por data-testid (cambia según versión) */
         [data-testid*="fork"] { display: none !important; }
+        [data-testid*="Fork"] { display: none !important; }
+        [data-testid*="github"] { display: none !important; }
+        [data-testid*="GitHub"] { display: none !important; }
+
+        /* Toolbar superior (si los iconos vienen dentro del header/toolbar) */
+        [data-testid="stToolbar"] a[href*="github.com"],
+        [data-testid="stToolbar"] button[aria-label*="Fork"],
+        [data-testid="stToolbar"] button[aria-label*="GitHub"],
+        [data-testid="stToolbar"] a[aria-label*="Fork"],
+        [data-testid="stToolbar"] a[aria-label*="GitHub"] {
+          display: none !important;
+        }
+
+        /* Último recurso: ocultar el contenedor de la esquina superior derecha */
+        [data-testid="stToolbarActionButton"] { display: none !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1835,10 +1858,16 @@ def read_txt_files_from_github(
                 "pending_names": list(names_ordered[idx + 1:]),
             }
             _orig_total = idx + 1 + len(names_ordered[idx + 1:])
-            st.session_state["_transcript_resume_notice"] = (
-                f"Descarga de «{path}» en varios pasos (límite tiempo Cloud): "
-                f"{len(data)}/{_orig_total} archivos. Continuando automáticamente…"
-            )
+            if IS_ADMIN:
+                st.session_state["_transcript_resume_notice"] = (
+                    f"Descarga de «{path}» en varios pasos (límite tiempo Cloud): "
+                    f"{len(data)}/{_orig_total} archivos. Continuando automáticamente…"
+                )
+            else:
+                st.session_state["_transcript_resume_notice"] = (
+                    "Descarga en varios pasos (límite tiempo Cloud): "
+                    f"{len(data)}/{_orig_total} archivos. Continuando automáticamente…"
+                )
             st.session_state.pop("loading_dataframe", None)
             safe_rerun()
 
@@ -3322,11 +3351,15 @@ if gh_url:
     # Mostrar el radio arriba (antes de cargar el DataFrame) para que se vea
     # la opción incluso mientras se construye al inicio.
     time_window_label = st.radio(
-        "Rango de transcripciones:",
+        "Rango:" if not IS_ADMIN else "Rango de transcripciones:",
         options=list(_DF_TIME_WINDOW_LABEL_TO_KEY.keys()),
         key="df_time_window_radio",
         on_change=_on_df_time_window_radio_change,
-        help="Configura el rango usado al regenerar el DataFrame y al recargar transcripciones.",
+        help=(
+            "Configura el rango usado al regenerar el DataFrame y al recargar."
+            if not IS_ADMIN
+            else "Configura el rango usado al regenerar el DataFrame y al recargar transcripciones."
+        ),
     )
     time_window_key = _DF_TIME_WINDOW_LABEL_TO_KEY.get(time_window_label, "season")
 
