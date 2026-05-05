@@ -3260,6 +3260,122 @@ def _fmt_df_summary_for_ui(df_len: int, files_len: int, folder_used: str, prefix
     extra = f" | {suffix}" if suffix else ""
     return f"{prefix}: {df_len} bloques{extra} ({files_len} archivos)"
 
+
+def _run_force_regenerate_dataframe_ui(gh_url: str, custom_path: str, time_window_key: str) -> None:
+    """
+    Flujo del botón «Forzar Regeneración» (administrador) y «Cargar los bloques» (vista restringida).
+    Regenera el DataFrame desde cero con la ventana temporal indicada.
+    """
+    global DF_REGEN_LOCK
+    if DF_REGEN_LOCK:
+        st.info(
+            "🔒 Ya se está regenerando el DataFrame en otra sesión. Espera a que termine antes de lanzar otra regeneración."
+        )
+        return
+    if not gh_url:
+        st.error(_SRC_URL_ERR)
+        return
+    if not IS_ADMIN:
+        st.session_state["_restricted_user_confirmed_load"] = True
+    DF_REGEN_LOCK = True
+    try:
+        st.session_state["gh_url"] = gh_url
+        st.session_state["df_time_window_saved_key"] = time_window_key
+        try:
+            _save_settings_to_github(gh_url, {"df_time_window": time_window_key})
+        except Exception:
+            pass
+        _load_dataframe_from_github.clear()
+        import time
+
+        start_time = time.time()
+        with st.spinner(
+            "🔄 Forzando regeneración completa del DataFrame (esto puede tardar varios minutos con 300+ archivos)..."
+        ):
+            progress_bar = st.progress(0)
+            status_placeholder = st.empty()
+
+            def _df_regen_progress(p: float):
+                try:
+                    progress_bar.progress(int(max(0, min(1, p)) * 100))
+                except Exception:
+                    pass
+
+            def _df_regen_status(folder: str, current: int, total: int):
+                try:
+                    elapsed = time.time() - start_time
+                    eta_str = ""
+                    if current > 0 and total:
+                        avg_cur = elapsed / current
+                        base_avg = None
+                        prev = st.session_state.get("df_load_times")
+                        if prev and prev.get("files"):
+                            try:
+                                base_avg = prev.get("total_time", 0) / max(1, prev["files"])
+                            except Exception:
+                                base_avg = None
+                        avg = (0.5 * base_avg + 0.5 * avg_cur) if base_avg else avg_cur
+                        remaining = max(0.0, avg * (total - current))
+                        if remaining >= 60:
+                            m = int(remaining // 60)
+                            s = int(remaining % 60)
+                            eta_str = f" | ETA ~ {m}m {s}s"
+                        else:
+                            eta_str = f" | ETA ~ {int(remaining)}s"
+                    if IS_ADMIN:
+                        status_placeholder.text(
+                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
+                        )
+                    else:
+                        status_placeholder.text(
+                            f"Incorporando archivo {current} de {total}...{eta_str}"
+                        )
+                except Exception:
+                    pass
+
+            df, files, folder_used, error_msg = force_regenerate_dataframe(
+                gh_url,
+                custom_path,
+                time_window=time_window_key,
+                progress_cb=_df_regen_progress,
+                status_cb=_df_regen_status,
+            )
+            progress_bar.empty()
+            if not df.empty:
+                st.session_state["trans_files"] = files
+                st.session_state["trans_df"] = df
+                _load_dataframe_from_github.clear()
+                st.session_state["df_time_window_last_used_key"] = time_window_key
+                if error_msg:
+                    if IS_ADMIN:
+                        st.warning(f"{error_msg}")
+                    else:
+                        st.warning(f"{str(error_msg).replace('GitHub', 'repositorio')}")
+                    st.info(
+                        f"El DataFrame se ha regenerado correctamente en esta sesión: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos), pero no se pudo guardar {_SRC_SAVE_FAIL}."
+                    )
+                else:
+                    st.success(
+                        _fmt_df_summary_for_ui(
+                            len(df), len(files), folder_used, "✅ DataFrame regenerado manualmente"
+                        )
+                    )
+            else:
+                if error_msg:
+                    msg = str(error_msg)
+                    if not IS_ADMIN:
+                        msg = msg.replace("GitHub", "repositorio")
+                    st.error(f"❌ {msg}")
+                else:
+                    st.warning(
+                        "No se encontraron archivos .txt."
+                        if not IS_ADMIN
+                        else "No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'"
+                    )
+    finally:
+        DF_REGEN_LOCK = False
+
+
 _resume_msg = st.session_state.pop("_transcript_resume_notice", None)
 if _resume_msg:
     st.info(_resume_msg)
@@ -3380,7 +3496,7 @@ if gh_url:
                 saved_key = "season"
             st.session_state["df_time_window_saved_key"] = saved_key
         else:
-            # Restringido: sin petición a GitHub hasta «Cargar Datos» (columna derecha); radio por defecto.
+            # Restringido: sin petición pesada hasta «Cargar los bloques»; radio por defecto.
             st.session_state["df_time_window_saved_key"] = "season"
         _key_to_label = {
             "last_1m": "Último mes",
@@ -3423,14 +3539,14 @@ if gh_url:
     if not IS_ADMIN and not st.session_state.get("_restricted_user_confirmed_load") and not _has_df:
         st.caption(
             f"Rango seleccionado: {_DF_TIME_WINDOW_KEY_TO_LABEL.get(time_window_key, time_window_label)}. "
-            "Pulsa «Cargar Datos» (columna derecha, junto a recargar) para construir el DataFrame."
+            "Pulsa «Cargar los bloques» (debajo del rango) para construir el DataFrame."
         )
     else:
         st.caption(f"DataFrame actual se construye con: {_DF_TIME_WINDOW_KEY_TO_LABEL.get(_used_key, time_window_label)}")
 
 # Carga automática al inicio si no hay datos (optimizada)
 # PRIORIDAD: 1) session_state (trans_df/trans_files), 2) caché adicional (df_cache), 3) caché Streamlit, 4) GitHub
-# Restringido: niveles 2–4 solo tras pulsar «Cargar Datos» en la segunda columna (_restricted_user_confirmed_load).
+# Restringido: niveles 2–4 solo tras «Cargar los bloques» (regeneración) o bandera _restricted_user_confirmed_load.
 if gh_url:
     # Nivel 1: Si ya tenemos los datos en session_state estándar, no hacer nada (más rápido)
     if 'trans_df' in st.session_state and 'trans_files' in st.session_state:
@@ -3589,152 +3705,29 @@ if gh_url:
             if 'loading_dataframe' in st.session_state:
                 del st.session_state['loading_dataframe']
 
-# Botones para recargar
-button_col1, button_col2 = st.columns([2, 1])
+# Botones: administrador = recargar + forzar regeneración; restringido = solo «Cargar los bloques» (misma regeneración).
+if IS_ADMIN:
+    button_col1, button_col2 = st.columns([2, 1])
 
-with button_col1:
-    if st.button(_SRC_RELOAD_BTN_LABEL, key="reload_transcriptions"):
-        if gh_url:
-            st.session_state['gh_url'] = gh_url  # Guardar URL
-            # Limpiar caché de Streamlit para forzar recarga
-            _load_dataframe_from_github.clear()
-            import time
-            start_time = time.time()
-            with st.spinner(f"Recargando transcripciones desde {_SRC_FROM} (optimizado)..."):
-                progress_bar = st.progress(0)
-                status_placeholder = st.empty()
-
-                def _df_reload_progress(p: float):
-                    try:
-                        progress_bar.progress(int(max(0, min(1, p)) * 100))
-                    except Exception:
-                        pass
-
-                def _df_reload_status(folder: str, current: int, total: int):
-                    try:
-                        elapsed = time.time() - start_time
-                        eta_str = ""
-                        if current > 0 and total:
-                            avg_cur = elapsed / current
-                            base_avg = None
-                            prev = st.session_state.get("df_load_times")
-                            if prev and prev.get("files"):
-                                try:
-                                    base_avg = prev.get("total_time", 0) / max(1, prev["files"])
-                                except Exception:
-                                    base_avg = None
-                            avg = (0.5 * base_avg + 0.5 * avg_cur) if base_avg else avg_cur
-                            remaining = max(0.0, avg * (total - current))
-                            if remaining >= 60:
-                                m = int(remaining // 60)
-                                s = int(remaining % 60)
-                                eta_str = f" | ETA ~ {m}m {s}s"
-                            else:
-                                eta_str = f" | ETA ~ {int(remaining)}s"
-                        if IS_ADMIN:
-                            status_placeholder.text(
-                                f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
-                            )
-                        else:
-                            status_placeholder.text(f"Incorporando archivo {current} de {total}...{eta_str}")
-                    except Exception:
-                        pass
-
-                df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
-                    gh_url,
-                    custom_path.strip() if custom_path else "",
-                    progress_cb=_df_reload_progress,
-                    status_cb=_df_reload_status,
-                    time_window_key=_normalize_df_time_window_key(
-                        st.session_state.get("df_time_window_saved_key", "season")
-                    ),
-                )
-                progress_bar.empty()
-                if not df.empty:
-                    st.session_state['trans_files'] = files
-                    st.session_state['trans_df'] = df
-                    st.session_state['df_time_window_last_used_key'] = _normalize_df_time_window_key(
-                        st.session_state.get("df_time_window_saved_key", "season")
-                    )
-                    if status == "cached":
-                        st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "⚡ Carga rápida desde caché"))
-                    elif status == "regenerated":
-                        st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "🔄 DataFrame regenerado"))
-                    elif status == "first_load":
-                        st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "📥 Primera carga"))
-                    else:
-                        st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "Recarga completada"))
-                else:
-                    if error_msg:
-                        st.error(f"❌ {error_msg}")
-                    else:
-                        st.warning(
-                            "No se encontraron archivos .txt."
-                            if not IS_ADMIN
-                            else "No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'"
-                        )
-        else:
-            st.error(_SRC_URL_ERR)
-
-with button_col2:
-    # Radio ya se muestra arriba; aquí solo reutilizamos el valor actual para regenerar.
-    time_window_key = _normalize_df_time_window_key(
-        st.session_state.get(
-            "df_time_window_saved_key",
-            time_window_key if "time_window_key" in locals() else "season",
-        )
-    )
-    time_window_label = _DF_TIME_WINDOW_KEY_TO_LABEL.get(time_window_key, "Última temporada")
-
-    if IS_ADMIN:
-        _force_btn_label = "🔧 Forzar Regeneración"
-        _force_btn_help = (
-            "Fuerza la regeneración completa del DataFrame ignorando el caché. "
-            "Útil si la detección automática de cambios falla."
-        )
-    else:
-        _force_btn_label = "Cargar Datos"
-        _force_btn_help = (
-            "Construye el DataFrame con el rango elegido arriba. La primera vez puede tardar varios minutos. "
-            "Con datos ya cargados, usa «Recargar» a la izquierda para actualizar."
-        )
-
-    _force_or_load_clicked = st.button(
-        _force_btn_label, key="force_regenerate", help=_force_btn_help
-    )
-
-    if _force_or_load_clicked and not IS_ADMIN:
-        st.session_state["_restricted_user_confirmed_load"] = True
-        safe_rerun()
-    elif _force_or_load_clicked and IS_ADMIN:
-        if DF_REGEN_LOCK:
-            st.info("🔒 Ya se está regenerando el DataFrame en otra sesión. Espera a que termine antes de lanzar otra regeneración.")
-        elif gh_url:
-            DF_REGEN_LOCK = True
-            try:
+    with button_col1:
+        if st.button(_SRC_RELOAD_BTN_LABEL, key="reload_transcriptions"):
+            if gh_url:
                 st.session_state['gh_url'] = gh_url  # Guardar URL
-                # Misma ventana para cargas posteriores en esta sesión (aunque falle el guardado en GitHub)
-                st.session_state["df_time_window_saved_key"] = time_window_key
-                # Persistir preferencia del rango temporal en GitHub (entre sesiones)
-                try:
-                    _save_settings_to_github(gh_url, {"df_time_window": time_window_key})
-                except Exception:
-                    pass
-                # Limpiar caché de Streamlit antes de regenerar
+                # Limpiar caché de Streamlit para forzar recarga
                 _load_dataframe_from_github.clear()
                 import time
                 start_time = time.time()
-                with st.spinner("🔄 Forzando regeneración completa del DataFrame (esto puede tardar varios minutos con 300+ archivos)..."):
+                with st.spinner(f"Recargando transcripciones desde {_SRC_FROM} (optimizado)..."):
                     progress_bar = st.progress(0)
                     status_placeholder = st.empty()
 
-                    def _df_regen_progress(p: float):
+                    def _df_reload_progress(p: float):
                         try:
                             progress_bar.progress(int(max(0, min(1, p)) * 100))
                         except Exception:
                             pass
 
-                    def _df_regen_status(folder: str, current: int, total: int):
+                    def _df_reload_status(folder: str, current: int, total: int):
                         try:
                             elapsed = time.time() - start_time
                             eta_str = ""
@@ -3764,47 +3757,75 @@ with button_col2:
                         except Exception:
                             pass
 
-                    df, files, folder_used, error_msg = force_regenerate_dataframe(
+                    df, files, folder_used, status, error_msg = load_transcriptions_from_github_optimized(
                         gh_url,
                         custom_path.strip() if custom_path else "",
-                        time_window=time_window_key,
-                        progress_cb=_df_regen_progress,
-                        status_cb=_df_regen_status,
+                        progress_cb=_df_reload_progress,
+                        status_cb=_df_reload_status,
+                        time_window_key=_normalize_df_time_window_key(
+                            st.session_state.get("df_time_window_saved_key", "season")
+                        ),
                     )
                     progress_bar.empty()
                     if not df.empty:
                         st.session_state['trans_files'] = files
                         st.session_state['trans_df'] = df
-                        # Limpiar caché después de regenerar para que use el nuevo DataFrame
-                        _load_dataframe_from_github.clear()
-                        st.session_state['df_time_window_last_used_key'] = time_window_key
-                        if error_msg:
-                            # Regeneración correcta pero fallo al guardar en GitHub
-                            if IS_ADMIN:
-                                st.warning(f"{error_msg}")
-                            else:
-                                st.warning(f"{str(error_msg).replace('GitHub', 'repositorio')}")
-                            st.info(
-                                f"El DataFrame se ha regenerado correctamente en esta sesión: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos), pero no se pudo guardar {_SRC_SAVE_FAIL}."
-                            )
+                        st.session_state['df_time_window_last_used_key'] = _normalize_df_time_window_key(
+                            st.session_state.get("df_time_window_saved_key", "season")
+                        )
+                        if status == "cached":
+                            st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "⚡ Carga rápida desde caché"))
+                        elif status == "regenerated":
+                            st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "🔄 DataFrame regenerado"))
+                        elif status == "first_load":
+                            st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "📥 Primera carga"))
                         else:
-                            st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "✅ DataFrame regenerado manualmente"))
+                            st.success(_fmt_df_summary_for_ui(len(df), len(files), folder_used, "Recarga completada"))
                     else:
                         if error_msg:
-                            msg = str(error_msg)
-                            if not IS_ADMIN:
-                                msg = msg.replace("GitHub", "repositorio")
-                            st.error(f"❌ {msg}")
+                            st.error(f"❌ {error_msg}")
                         else:
                             st.warning(
                                 "No se encontraron archivos .txt."
                                 if not IS_ADMIN
                                 else "No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'"
                             )
-            finally:
-                DF_REGEN_LOCK = False
-        else:
-            st.error(_SRC_URL_ERR)
+            else:
+                st.error(_SRC_URL_ERR)
+
+    with button_col2:
+        _tw_admin = _normalize_df_time_window_key(
+            st.session_state.get(
+                "df_time_window_saved_key",
+                time_window_key if "time_window_key" in locals() else "season",
+            )
+        )
+        if st.button(
+            "🔧 Forzar Regeneración",
+            key="force_regenerate",
+            help=(
+                "Fuerza la regeneración completa del DataFrame ignorando el caché. "
+                "Útil si la detección automática de cambios falla."
+            ),
+        ):
+            _run_force_regenerate_dataframe_ui(gh_url, custom_path.strip() if custom_path else "", _tw_admin)
+
+elif gh_url:
+    _tw_res = _normalize_df_time_window_key(
+        st.session_state.get(
+            "df_time_window_saved_key",
+            time_window_key if "time_window_key" in locals() else "season",
+        )
+    )
+    if st.button(
+        "Cargar los bloques",
+        key="restricted_cargar_bloques",
+        help=(
+            "Regenera el DataFrame desde cero con el rango elegido (igual que «Forzar regeneración» en administrador). "
+            "Puede tardar varios minutos."
+        ),
+    ):
+        _run_force_regenerate_dataframe_ui(gh_url, custom_path.strip() if custom_path else "", _tw_res)
 
 
 # --- UI: Search ---
