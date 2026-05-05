@@ -3,6 +3,7 @@ import io, math, gc, pandas as pd, re, requests, tempfile, os, base64, unicodeda
 import subprocess
 import hmac
 import time as _time_mod
+import secrets
 from typing import List
 from rapidfuzz import fuzz
 import hashlib
@@ -415,6 +416,20 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# En modo restringido ocultamos cualquier enlace hacia github.com que pueda aparecer
+# (p.ej. el botón "Fork" de Streamlit Cloud), para que no puedan llegar al repo.
+if not IS_ADMIN:
+    st.markdown(
+        """
+        <style>
+        a[href*="github.com"] { display: none !important; }
+        button[aria-label*="Fork"], button[title*="Fork"] { display: none !important; }
+        [data-testid*="fork"] { display: none !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # Botón de logout en la esquina superior derecha
 col_logout, col_title = st.columns([1, 10])
 with col_logout:
@@ -693,6 +708,389 @@ def _parse_repo_url(repo_url: str) -> tuple[str, str]:
         if not m:
             return "", ""
         return m.group(1), m.group(2).replace('.git', '')
+
+
+def _auth_hmac_key_bytes() -> bytes:
+    """
+    Clave para HMAC (pseudonimización). Reutiliza el secreto de firma del token st_auth.
+    """
+    try:
+        key = _auth_signing_secret()
+    except Exception:
+        key = ""
+    if not key:
+        # Fallback: derivar de APP_PASSWORD (si existe) o un literal (último recurso)
+        try:
+            key = str(st.secrets.get("APP_PASSWORD", "") or "").strip()
+        except Exception:
+            key = ""
+    if not key:
+        key = "fallback-hmac-key"
+    return str(key).encode("utf-8", errors="ignore")
+
+
+def _hmac_tag(value: str) -> str:
+    """
+    Devuelve un tag HMAC hex (no reversible) para evitar guardar PII.
+    """
+    try:
+        v = str(value or "")
+        return hmac.new(_auth_hmac_key_bytes(), v.encode("utf-8", errors="ignore"), hashlib.sha256).hexdigest()
+    except Exception:
+        return ""
+
+
+def _get_request_headers() -> dict:
+    """
+    Best-effort: leer cabeceras de la petición actual en Streamlit Cloud.
+    No está garantizado en todas las versiones/entornos.
+    """
+    try:
+        # Streamlit >= 1.32 suele exponer st.context.headers
+        hdrs = getattr(getattr(st, "context", None), "headers", None)
+        if isinstance(hdrs, dict):
+            return {str(k).lower(): str(v) for k, v in hdrs.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _get_client_ip_best_effort() -> str:
+    """
+    Best-effort: intenta obtener IP del cliente (puede ser proxy/CDN).
+    No se guarda la IP; solo se usa para geo (provincia) y HMAC.
+    """
+    hdrs = _get_request_headers()
+    xff = (hdrs.get("x-forwarded-for") or "").strip()
+    if xff:
+        # Puede venir "ip, proxy1, proxy2"
+        ip = xff.split(",")[0].strip()
+        return ip
+    xri = (hdrs.get("x-real-ip") or "").strip()
+    return xri
+
+
+@st.cache_data(ttl=86400, max_entries=2048, show_spinner=False)
+def _geo_region_for_ip(ip: str) -> str:
+    """
+    GeoIP (best-effort) para obtener región/provincia.
+    Cache 24h para no machacar la API. No se guarda IP en GitHub; solo se devuelve región.
+    """
+    ip_s = str(ip or "").strip()
+    if not ip_s:
+        return ""
+    try:
+        # Servicio sin key (puede rate-limit; tenemos <= 5 sesiones)
+        url = f"https://ipapi.co/{ip_s}/json/"
+        resp = requests.get(url, timeout=3)
+        if resp.status_code != 200:
+            return ""
+        data = resp.json() if resp.content else {}
+        if not isinstance(data, dict):
+            return ""
+        # En España suele venir "region" o "region_code"
+        region = str(data.get("region") or data.get("region_code") or "").strip()
+        country = str(data.get("country_name") or "").strip()
+        if region and country:
+            return f"{region}, {country}"
+        return region or country
+    except Exception:
+        return ""
+
+
+def _github_get_content(repo_url: str, path: str) -> tuple[dict, str]:
+    """
+    GET GitHub contents API. Retorna (json_dict, error_msg).
+    """
+    owner, repo = _parse_repo_url(repo_url)
+    if not owner or not repo:
+        return {}, "URL de repositorio no válida"
+    headers, _token = _get_github_headers()
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    try:
+        resp = requests.get(api_url, headers=headers, timeout=20)
+    except Exception as e:
+        return {}, f"Error de red: {e}"
+    if resp.status_code != 200:
+        return {}, f"Error al leer '{path}': {resp.status_code}"
+    try:
+        return resp.json() if resp.content else {}, ""
+    except Exception as e:
+        return {}, f"Error al parsear JSON: {e}"
+
+
+def _github_put_json(repo_url: str, path: str, payload: dict, message: str) -> tuple[bool, str]:
+    """
+    PUT GitHub contents API escribiendo JSON en base64. Crea o actualiza el fichero.
+    """
+    owner, repo = _parse_repo_url(repo_url)
+    if not owner or not repo:
+        return False, "URL de repositorio no válida"
+    headers, token = _get_github_headers()
+    if not token:
+        return False, "Se requiere GITHUB_TOKEN para escribir logs"
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+
+    sha = ""
+    try:
+        existing = requests.get(api_url, headers=headers, timeout=15)
+        if existing.status_code == 200:
+            sha = (existing.json() or {}).get("sha", "") or ""
+    except Exception:
+        sha = ""
+
+    try:
+        raw = json.dumps(payload, ensure_ascii=False, indent=2)
+        content_b64 = base64.b64encode(raw.encode("utf-8")).decode("utf-8")
+        data_put = {"message": message, "content": content_b64}
+        if sha:
+            data_put["sha"] = sha
+        put = requests.put(api_url, headers=headers, json=data_put, timeout=30)
+        if put.status_code not in (200, 201):
+            return False, f"Error al escribir '{path}': {put.status_code}"
+        return True, ""
+    except Exception as e:
+        return False, f"Error al escribir log: {e}"
+
+
+def _github_delete_file(repo_url: str, path: str, message: str) -> tuple[bool, str]:
+    """
+    Borra un fichero vía GitHub contents API.
+    """
+    owner, repo = _parse_repo_url(repo_url)
+    if not owner or not repo:
+        return False, "URL de repositorio no válida"
+    headers, token = _get_github_headers()
+    if not token:
+        return False, "Se requiere GITHUB_TOKEN para borrar logs"
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    try:
+        resp = requests.get(api_url, headers=headers, timeout=15)
+        if resp.status_code != 200:
+            return False, f"No se pudo leer para borrar: {resp.status_code}"
+        sha = (resp.json() or {}).get("sha", "") or ""
+        if not sha:
+            return False, "SHA no encontrado"
+        del_resp = requests.delete(
+            api_url,
+            headers=headers,
+            json={"message": message, "sha": sha},
+            timeout=30,
+        )
+        if del_resp.status_code not in (200, 204):
+            return False, f"Error al borrar '{path}': {del_resp.status_code}"
+        return True, ""
+    except Exception as e:
+        return False, f"Error al borrar: {e}"
+
+
+def _prune_session_logs_for_cred_today(cred_id: str, keep_last: int = 10) -> None:
+    """
+    Rotación: mantener solo los últimos N logs de sesión (por cred_id) del día actual.
+    Minimiza acumulación en repo público.
+    """
+    try:
+        cid = str(cred_id or "").strip()
+        if not cid:
+            return
+        repo_url = _session_logs_repo_url()
+        day_dir = _session_log_dir_for_today()
+        items, err = _github_list_dir(repo_url, day_dir)
+        if err:
+            return
+        # Leer solo los ficheros JSON y filtrar por cred_id
+        logs: list[tuple[int, str]] = []
+        for it in items:
+            try:
+                if not isinstance(it, dict):
+                    continue
+                if it.get("type") != "file":
+                    continue
+                name = str(it.get("name", "") or "")
+                if not name.endswith(".json"):
+                    continue
+                p = f"{day_dir}/{name}"
+                j, _e = _github_read_json_file(repo_url, p)
+                if not j:
+                    continue
+                if str(j.get("cred_id", "") or "") != cid:
+                    continue
+                ts = int(j.get("last_seen_unix", 0) or 0)
+                logs.append((ts, p))
+            except Exception:
+                continue
+        if len(logs) <= keep_last:
+            return
+        logs.sort(key=lambda x: x[0], reverse=True)
+        to_delete = logs[keep_last:]
+        for _ts, p in to_delete:
+            _github_delete_file(repo_url, p, message="prune old session log")
+    except Exception:
+        pass
+
+
+def _github_list_dir(repo_url: str, path: str) -> tuple[list, str]:
+    """
+    Lista un directorio con contents API. Retorna (items, error_msg).
+    """
+    data, err = _github_get_content(repo_url, path)
+    if err:
+        return [], err
+    if isinstance(data, list):
+        return data, ""
+    return [], "Respuesta inesperada al listar directorio"
+
+
+def _github_read_json_file(repo_url: str, path: str) -> tuple[dict, str]:
+    """
+    Lee un JSON desde contents API (base64).
+    """
+    data, err = _github_get_content(repo_url, path)
+    if err:
+        return {}, err
+    try:
+        content_b64 = (data or {}).get("content", "") or ""
+        if not content_b64:
+            return {}, "Sin contenido"
+        raw = base64.b64decode(content_b64).decode("utf-8", errors="ignore")
+        j = json.loads(raw) if raw.strip() else {}
+        return j if isinstance(j, dict) else {}, ""
+    except Exception as e:
+        return {}, f"Error al leer JSON: {e}"
+
+
+def _session_logs_repo_url() -> str:
+    """
+    Repo destino para logs. Por defecto el repo principal.
+    Se puede override con SESSION_LOG_REPO_URL en Secrets/env.
+    """
+    try:
+        v = str(st.secrets.get("SESSION_LOG_REPO_URL", "") or "").strip()
+        if v:
+            return v
+    except Exception:
+        pass
+    env = os.getenv("SESSION_LOG_REPO_URL", "").strip()
+    return env or "https://github.com/jarconett/c_especiales/"
+
+
+def _session_log_dir_for_today() -> str:
+    d = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return f"data/session_logs/{d}"
+
+
+def _ensure_session_id() -> str:
+    sid = st.session_state.get("_session_id", "")
+    if sid:
+        return sid
+    try:
+        sid = secrets.token_urlsafe(16)
+    except Exception:
+        sid = hashlib.sha256(str(datetime.now(timezone.utc)).encode("utf-8")).hexdigest()[:32]
+    st.session_state["_session_id"] = sid
+    return sid
+
+
+def _write_session_heartbeat(force: bool = False) -> None:
+    """
+    Escribe un log por sesión al cargar y luego cada N minutos.
+    - TTL de "activo": 45 min (se usa al leer)
+    - Heartbeat: cada 20 min
+    No guarda IP; guarda HMAC de IP y región (si se pudo resolver).
+    """
+    try:
+        repo_url = _session_logs_repo_url()
+        now = int(_time_mod.time())
+        interval_sec = 20 * 60
+        last = int(st.session_state.get("_session_hb_last", 0) or 0)
+        if not force and last and (now - last) < interval_sec:
+            return
+
+        role = st.session_state.get("auth_role", "restricted") or "restricted"
+        cred_hash = st.session_state.get("auth_cred_hash", "") or ""
+        cred_id = _hmac_tag(f"cred::{cred_hash}") if cred_hash else ""
+
+        ip = _get_client_ip_best_effort()
+        ip_tag = _hmac_tag(f"ip::{ip}") if ip else ""
+        region = _geo_region_for_ip(ip) if ip else ""
+
+        hdrs = _get_request_headers()
+        ua = str(hdrs.get("user-agent", "") or "").strip()
+        ua_tag = _hmac_tag(f"ua::{ua}") if ua else ""
+
+        sid = _ensure_session_id()
+        day_dir = _session_log_dir_for_today()
+        path = f"{day_dir}/{sid}.json"
+        payload = {
+            "v": 1,
+            "session_id": sid,
+            "role": role,
+            "cred_id": cred_id,
+            "last_seen_utc": datetime.now(timezone.utc).isoformat(),
+            "last_seen_unix": now,
+            "ip_tag": ip_tag,
+            "ua_tag": ua_tag,
+            "region": region,
+        }
+        ok, _err = _github_put_json(
+            repo_url,
+            path,
+            payload,
+            message=f"session heartbeat {sid} ({role})",
+        )
+        if ok:
+            st.session_state["_session_hb_last"] = now
+            # Rotación: deja solo los últimos 10 logs de este usuario (cred_id) hoy.
+            # Se ejecuta best-effort; no debe romper la app.
+            _prune_session_logs_for_cred_today(cred_id, keep_last=10)
+    except Exception:
+        # Nunca romper la app por logging
+        pass
+
+
+def _list_active_sessions_today(ttl_minutes: int = 45) -> tuple[list[dict], str]:
+    """
+    Devuelve sesiones "activas" del día actual usando TTL.
+    """
+    repo_url = _session_logs_repo_url()
+    day_dir = _session_log_dir_for_today()
+    items, err = _github_list_dir(repo_url, day_dir)
+    if err:
+        # Si el directorio aún no existe, no es un error "real"
+        if "404" in str(err):
+            return [], ""
+        return [], err
+    now = int(_time_mod.time())
+    ttl_sec = int(ttl_minutes * 60)
+    active: list[dict] = []
+    for it in items:
+        try:
+            if not isinstance(it, dict):
+                continue
+            if it.get("type") != "file":
+                continue
+            name = str(it.get("name", "") or "")
+            if not name.endswith(".json"):
+                continue
+            p = f"{day_dir}/{name}"
+            j, _e = _github_read_json_file(repo_url, p)
+            if not j:
+                continue
+            last_seen = int(j.get("last_seen_unix", 0) or 0)
+            if last_seen and (now - last_seen) <= ttl_sec:
+                active.append(j)
+        except Exception:
+            continue
+    active.sort(key=lambda x: int(x.get("last_seen_unix", 0) or 0), reverse=True)
+    return active, ""
+
+
+# Heartbeat de sesión (best-effort): al inicio y cada ~20 min.
+try:
+    if st.session_state.get("authenticated"):
+        _write_session_heartbeat(force=True)
+except Exception:
+    pass
 
 
 def _get_file_sha(files: List[dict]) -> dict:
@@ -2703,6 +3101,23 @@ def _mask_secret_value(v: str) -> str:
 
 # --- UI: Transcriptions loader ---
 st.header("2) Leer transcripciones")
+
+# Textos neutros para evitar mencionar GitHub/Spoti en UI a usuarios restringidos.
+# Nota: el código sigue leyendo desde el repositorio internamente; solo cambiamos el texto visible.
+_SRC_FROM = "GitHub" if IS_ADMIN else "el repositorio"
+_SRC_OF_FOLDER = "de GitHub" if IS_ADMIN else "del repositorio"
+_SRC_DOWNLOADING = "descargando desde GitHub" if IS_ADMIN else "descargando desde el repositorio"
+_SRC_FIRST_LOAD = "Primera carga desde GitHub" if IS_ADMIN else "Primera carga desde el repositorio"
+_SRC_RELOAD_BTN_LABEL = (
+    "🔄 Recargar archivos .txt desde GitHub" if IS_ADMIN else "🔄 Recargar archivos .txt desde el repositorio"
+)
+_SRC_URL_ERR = (
+    "Por favor, ingresa una URL de repositorio GitHub válida"
+    if IS_ADMIN
+    else "Por favor, ingresa una URL de repositorio válida"
+)
+_SRC_SAVE_FAIL = "en GitHub" if IS_ADMIN else "en el repositorio"
+
 _resume_msg = st.session_state.pop("_transcript_resume_notice", None)
 if _resume_msg:
     st.info(_resume_msg)
@@ -2885,7 +3300,7 @@ if gh_url:
             st.session_state['loading_dataframe'] = True
             import time
             start_time = time.time()
-            with st.spinner("Cargando transcripciones desde GitHub (optimizado)..."):
+            with st.spinner(f"Cargando transcripciones desde {_SRC_FROM} (optimizado)..."):
                 progress_bar = st.progress(0)
                 status_placeholder = st.empty()
 
@@ -2923,7 +3338,7 @@ if gh_url:
                             else:
                                 eta_str = f" | ETA ~ {int(remaining)}s"
                         status_placeholder.text(
-                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub...{eta_str}"
+                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
                         )
                     except Exception:
                         pass
@@ -2952,12 +3367,16 @@ if gh_url:
                         st.success(f"⚡⚡ Carga instantánea desde session_state: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.2f}s")
                     elif status == "cached":
                         # Si viene del caché de Streamlit, debería ser muy rápido (< 5s)
-                        cache_source = "caché de Streamlit" if elapsed_time < 5 else "caché (pero tardó descargando desde GitHub)"
+                        cache_source = (
+                            "caché de Streamlit"
+                            if elapsed_time < 5
+                            else f"caché (pero tardó {_SRC_DOWNLOADING})"
+                        )
                         st.success(f"⚡ Carga desde {cache_source}: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo total: {elapsed_time:.1f}s{time_info}")
                     elif status == "regenerated":
                         st.success(f"🔄 DataFrame regenerado: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.1f}s{time_info}")
                     elif status == "first_load":
-                        st.success(f"📥 Primera carga desde GitHub: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.1f}s{time_info}")
+                        st.success(f"📥 {_SRC_FIRST_LOAD}: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos) - Tiempo: {elapsed_time:.1f}s{time_info}")
                     else:
                         st.success(f"Cargados {len(files)} archivos desde carpeta '{folder_used}' y DataFrame con {len(df)} bloques - Tiempo: {elapsed_time:.1f}s{time_info}")
                 else:
@@ -2973,14 +3392,14 @@ if gh_url:
 button_col1, button_col2 = st.columns([2, 1])
 
 with button_col1:
-    if st.button("🔄 Recargar archivos .txt desde GitHub", key="reload_transcriptions"):
+    if st.button(_SRC_RELOAD_BTN_LABEL, key="reload_transcriptions"):
         if gh_url:
             st.session_state['gh_url'] = gh_url  # Guardar URL
-            # Limpiar caché de Streamlit para forzar recarga desde GitHub
+            # Limpiar caché de Streamlit para forzar recarga
             _load_dataframe_from_github.clear()
             import time
             start_time = time.time()
-            with st.spinner("Recargando transcripciones desde GitHub (optimizado)..."):
+            with st.spinner(f"Recargando transcripciones desde {_SRC_FROM} (optimizado)..."):
                 progress_bar = st.progress(0)
                 status_placeholder = st.empty()
 
@@ -3012,7 +3431,7 @@ with button_col1:
                             else:
                                 eta_str = f" | ETA ~ {int(remaining)}s"
                         status_placeholder.text(
-                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub...{eta_str}"
+                            f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
                         )
                     except Exception:
                         pass
@@ -3045,7 +3464,7 @@ with button_col1:
                     else:
                         st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
         else:
-            st.error("Por favor, ingresa una URL de repositorio GitHub válida")
+            st.error(_SRC_URL_ERR)
 
 with button_col2:
     # Radio ya se muestra arriba; aquí solo reutilizamos el valor actual para regenerar.
@@ -3102,7 +3521,7 @@ with button_col2:
                                 else:
                                     eta_str = f" | ETA ~ {int(remaining)}s"
                             status_placeholder.text(
-                                f"Incorporando archivo {current} de {total} en carpeta '{folder}' de GitHub...{eta_str}"
+                                f"Incorporando archivo {current} de {total} en carpeta '{folder}' {_SRC_OF_FOLDER}...{eta_str}"
                             )
                         except Exception:
                             pass
@@ -3123,19 +3542,27 @@ with button_col2:
                         st.session_state['df_time_window_last_used_key'] = time_window_key
                         if error_msg:
                             # Regeneración correcta pero fallo al guardar en GitHub
-                            st.warning(f"{error_msg}")
-                            st.info(f"El DataFrame se ha regenerado correctamente en esta sesión: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos), pero no se pudo guardar en GitHub.")
+                            if IS_ADMIN:
+                                st.warning(f"{error_msg}")
+                            else:
+                                st.warning(f"{str(error_msg).replace('GitHub', 'repositorio')}")
+                            st.info(
+                                f"El DataFrame se ha regenerado correctamente en esta sesión: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos), pero no se pudo guardar {_SRC_SAVE_FAIL}."
+                            )
                         else:
                             st.success(f"✅ DataFrame regenerado manualmente: {len(df)} bloques desde carpeta '{folder_used}' ({len(files)} archivos)")
                     else:
                         if error_msg:
-                            st.error(f"❌ {error_msg}")
+                            msg = str(error_msg)
+                            if not IS_ADMIN:
+                                msg = msg.replace("GitHub", "repositorio")
+                            st.error(f"❌ {msg}")
                         else:
                             st.warning("No se encontraron archivos .txt en las carpetas 'transcripciones' ni 'spoti'")
             finally:
                 DF_REGEN_LOCK = False
         else:
-            st.error("Por favor, ingresa una URL de repositorio GitHub válida")
+            st.error(_SRC_URL_ERR)
 
 
 # --- UI: Search ---
@@ -3254,3 +3681,31 @@ if IS_ADMIN:
             st.warning("⚠️ No se pudieron extraer fechas de los nombres de archivos. Verifica que sigan el formato DDMMYYYY (ej: 30012025 part1.txt)")
     else:
         st.info("ℹ️ Primero carga los archivos de transcripciones desde GitHub en la sección 2)")
+
+    st.markdown("---")
+
+    # --- UI: Sesiones activas ---
+    st.header("6) Sesiones activas")
+    st.caption("Definición: activa si `last_seen` está dentro de los últimos 45 minutos. Heartbeat al cargar y luego cada ~20 min.")
+    ttl_min = 45
+    sessions, err = _list_active_sessions_today(ttl_minutes=ttl_min)
+    if err:
+        st.warning(f"No se pudieron listar sesiones: {err}")
+    elif not sessions:
+        st.info("No hay sesiones activas ahora mismo (según TTL).")
+    else:
+        import pandas as _pd
+        rows = []
+        for s in sessions:
+            rows.append(
+                {
+                    "role": s.get("role", ""),
+                    "cred_id": (s.get("cred_id", "") or "")[:10],
+                    "última actividad (UTC)": s.get("last_seen_utc", ""),
+                    "región (best-effort)": s.get("region", ""),
+                    "ip_tag": (s.get("ip_tag", "") or "")[:10],
+                    "ua_tag": (s.get("ua_tag", "") or "")[:10],
+                    "session_id": (s.get("session_id", "") or "")[:8],
+                }
+            )
+        st.dataframe(_pd.DataFrame(rows), use_container_width=True)
