@@ -170,11 +170,6 @@
       "folder": "spoti",
       "size": 101430
     },
-    "10042026.txt": {
-      "sha": "06e62e624a505ce2c659c78fe144fdd41837dca2",
-      "folder": "spoti",
-      "size": 109798
-    },
     "13042026.txt": {
       "sha": "135a0a2474b0f39994c90e3fbc920f7c9cfb1ac9",
       "folder": "spoti",
@@ -216,8 +211,8 @@
       "size": 110003
     }
   },
-  "timestamp": "2026-05-09T15:51:31.665191+00:00",
-  "total_files": 43,
-  "df_rows": 16722,
+  "timestamp": "2026-05-10T15:41:30.064831+00:00",
+  "total_files": 42,
+  "df_rows": 16057,
   "df_parts": 1
 }
