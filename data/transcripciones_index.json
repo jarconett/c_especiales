@@ -1,5 +1,110 @@
 {
   "file_index": {
+    "04052026 part1.txt": {
+      "sha": "393d65a08b44277e3574fc8770ed717f820247a3",
+      "folder": "transcripciones",
+      "size": 34058
+    },
+    "04052026 part2.txt": {
+      "sha": "f7697a3da403614bd24f0dec84c9bbf4d5c10cbc",
+      "folder": "transcripciones",
+      "size": 30876
+    },
+    "04052026 part3.txt": {
+      "sha": "8f6b7ac39cf134a5064e95d46befb8fe5e4db2c2",
+      "folder": "transcripciones",
+      "size": 32479
+    },
+    "04052026 part4.txt": {
+      "sha": "ea914931f90ea22b35006e2a800a19bed7df2fd4",
+      "folder": "transcripciones",
+      "size": 6601
+    },
+    "05052026 part1.txt": {
+      "sha": "0a0f03d3977c3829009f18bc45c04829ac5f0fe2",
+      "folder": "transcripciones",
+      "size": 32348
+    },
+    "05052026 part2.txt": {
+      "sha": "148f5c025bd9e9d8883f5c29d15c56089db39fc1",
+      "folder": "transcripciones",
+      "size": 36763
+    },
+    "05052026 part3.txt": {
+      "sha": "c1e8fd0a0f2839e8eab30f3c42e5b6dc601b7eb2",
+      "folder": "transcripciones",
+      "size": 36556
+    },
+    "05052026 part4.txt": {
+      "sha": "4f85a92c34e26c32e566f1b7497f1a32ddde3346",
+      "folder": "transcripciones",
+      "size": 11882
+    },
+    "06052026 part1.txt": {
+      "sha": "9306c81f80f21b8a4d5349f0ef5084aa7a3ea9e0",
+      "folder": "transcripciones",
+      "size": 34044
+    },
+    "06052026 part2.txt": {
+      "sha": "0ab27b4aa16db8e2858b0d0be280c107f2b1f57e",
+      "folder": "transcripciones",
+      "size": 34792
+    },
+    "06052026 part3.txt": {
+      "sha": "af667dda251e009b196ee3d4c540071721487df1",
+      "folder": "transcripciones",
+      "size": 35592
+    },
+    "06052026 part4.txt": {
+      "sha": "fdf99d9d083b0e18c8dac4a884991ac7a035e201",
+      "folder": "transcripciones",
+      "size": 16214
+    },
+    "07052026 part1.txt": {
+      "sha": "e97bbb6953deda71fce844f4b10ec55a353f85a0",
+      "folder": "transcripciones",
+      "size": 35493
+    },
+    "07052026 part2.txt": {
+      "sha": "cf7ab6456ad642bba2e5d5384321eebec3b05566",
+      "folder": "transcripciones",
+      "size": 32599
+    },
+    "07052026 part3.txt": {
+      "sha": "1b7e6391759528e596df5c1a892fb0da21cae2eb",
+      "folder": "transcripciones",
+      "size": 35162
+    },
+    "08052026 part2.txt": {
+      "sha": "e16a5fdb27fcbf541db0e2bd896b2042d572a2b3",
+      "folder": "transcripciones",
+      "size": 33811
+    },
+    "08052026 part3.txt": {
+      "sha": "2c7d5f19de7dc208aa1dd2a756b44e75b1ac2023",
+      "folder": "transcripciones",
+      "size": 34067
+    },
+    "11052026 part1.txt": {
+      "sha": "55b1bf528017b4ccaa12d333ff04b8c6b25422b1",
+      "folder": "transcripciones",
+      "size": 33376
+    },
+    "11052026 part2.txt": {
+      "sha": "6702289fdecb536ab5e1016143a159ea74722b9a",
+      "folder": "transcripciones",
+      "size": 32617
+    },
+    "11052026 part3.txt": {
+      "sha": "0b442796e7e7f4f553504080d50d70b872e90b15",
+      "folder": "transcripciones",
+      "size": 32497
+    },
+    "11052026 part4.txt": {
+      "sha": "0b7b07494d261ce6bd774897909b9217b70757fc",
+      "folder": "transcripciones",
+      "size": 11522
+    },
     "13042026 part1.txt": {
       "sha": "5ee225f2dccd22a150c12b8cdacf852d7a440d03",
       "folder": "transcripciones",
@@ -145,6 +250,11 @@
       "folder": "transcripciones",
       "size": 36775
     },
+    "29042026 part4.txt": {
+      "sha": "4f9806b6f20933f9b08c3a25740ab8d48bc9e394",
+      "folder": "transcripciones",
+      "size": 12645
+    },
     "04052026.txt": {
       "sha": "39c0a43fa5e8b1b9039dcd061acb0a2528a3bc18",
       "folder": "spoti",
@@ -216,8 +326,8 @@
       "size": 110003
     }
   },
-  "timestamp": "2026-05-11T18:47:26.350301+00:00",
-  "total_files": 43,
-  "df_rows": 16663,
+  "timestamp": "2026-05-12T11:03:08.324627+00:00",
+  "total_files": 65,
+  "df_rows": 21519,
   "df_parts": 1
 }
