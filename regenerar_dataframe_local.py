@@ -13,6 +13,33 @@ import requests
 
 DF_CHUNK_BYTES = 42 * 1024 * 1024  # mismo tamaño de chunk que en streamlit_app
 
+TRANSCRIPTS_TXT_REPO_DEFAULT = "jarconett/dbcesp"
+
+
+def _txt_repo_arg_to_owner_repo(s: str) -> str:
+    """Normaliza 'owner/repo' o URL https://github.com/... a 'owner/repo'."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if s.count("/") == 1 and "/" in s:
+        return s.replace(".git", "").strip("/")
+    import re as _re
+
+    m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", s)
+    if m:
+        return f"{m.group(1)}/{m.group(2).replace('.git', '')}"
+    return s
+
+
+def _transcripts_txt_repo_from_env(cli_arg: str) -> str:
+    env = (
+        os.getenv("TRANSCRIPTS_TXT_REPO", "").strip()
+        or os.getenv("TRANSCRIPTS_CONTENT_REPO_URL", "").strip()
+    )
+    if env:
+        return _txt_repo_arg_to_owner_repo(env)
+    return _txt_repo_arg_to_owner_repo(cli_arg or TRANSCRIPTS_TXT_REPO_DEFAULT)
+
 
 def _parse_repo_url(repo_url: str) -> Tuple[str, str]:
     """Parsea la URL del repositorio y retorna (owner, repo)."""
@@ -27,9 +54,13 @@ def _parse_repo_url(repo_url: str) -> Tuple[str, str]:
         return m.group(1), m.group(2).replace(".git", "")
 
 
-def _get_github_headers() -> Tuple[Dict[str, str], str]:
-    """Obtiene headers y token para la API de GitHub desde GITHUB_TOKEN."""
-    token = os.getenv("GITHUB_TOKEN", "").strip()
+def _get_db_token_headers_cli() -> Tuple[Dict[str, str], str]:
+    """Token para leer el repo privado jarconett/dbcesp (misma variable que Streamlit: DB_TOKEN)."""
+    token = os.getenv("DB_TOKEN", "").strip()
+    if token.startswith('"') and token.endswith('"'):
+        token = token[1:-1].strip()
+    if token.startswith("'") and token.endswith("'"):
+        token = token[1:-1].strip()
     headers = {"Accept": "application/vnd.github.v3+json"}
     if token:
         headers["Authorization"] = f"token {token}"
@@ -42,13 +73,21 @@ def _get_file_sha(files: List[dict]) -> dict:
     for file_info in files:
         filename = file_info.get("name", "")
         folder = file_info.get("folder", "").lower()
-        content = file_info.get("content", "")
-        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        file_index[filename] = {
-            "sha": content_hash,
-            "folder": folder,
-            "size": len(content),
-        }
+        sha_val = (file_info.get("sha") or "").strip()
+        if sha_val:
+            file_index[filename] = {
+                "sha": sha_val,
+                "folder": folder,
+                "size": int(file_info.get("size", 0) or 0),
+            }
+        else:
+            content = file_info.get("content", "")
+            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            file_index[filename] = {
+                "sha": content_hash,
+                "folder": folder,
+                "size": len(content),
+            }
     return file_index
 
 
@@ -103,16 +142,16 @@ def _save_dataframe_to_github(
     repo_url: str, df: pd.DataFrame, file_index: dict, path: str = "data"
 ) -> Tuple[bool, str]:
     """
-    Guarda el DataFrame serializado y el índice en GitHub en partes,
-    imitando el comportamiento de streamlit_app.
+    Guarda el DataFrame serializado y el índice en el repo privado (carpeta path, p. ej. data/).
+    Requiere DB_TOKEN con permiso de escritura en ese repo.
     """
     owner, repo = _parse_repo_url(repo_url)
     if not owner or not repo:
         return False, "URL de repositorio no válida"
 
-    headers, token = _get_github_headers()
+    headers, token = _get_db_token_headers_cli()
     if not token:
-        return False, "Se requiere GITHUB_TOKEN para guardar el DataFrame"
+        return False, "Se requiere DB_TOKEN para guardar el DataFrame en el repo privado"
 
     try:
         df_bytes = pickle.dumps(df)
@@ -209,19 +248,65 @@ def load_local_txts(base_dir: str, folder_name: str) -> List[dict]:
     return files
 
 
+def load_github_txts(owner_repo: str, folder_name: str) -> List[dict]:
+    """
+    Lista y descarga *.txt desde owner/repo (API GitHub).
+    Requiere DB_TOKEN. Devuelve [] si la carpeta no existe o no hay .txt.
+    """
+    owner_repo_n = _txt_repo_arg_to_owner_repo(owner_repo)
+    if not owner_repo_n:
+        return []
+    headers, token = _get_db_token_headers_cli()
+    if not token:
+        raise RuntimeError("DB_TOKEN no definido en el entorno")
+    api_url = f"https://api.github.com/repos/{owner_repo_n}/contents/{folder_name}"
+    resp = requests.get(api_url, headers=headers, timeout=45)
+    if resp.status_code != 200:
+        return []
+    items = resp.json()
+    if not isinstance(items, list):
+        return []
+    out: List[dict] = []
+    for it in items:
+        if it.get("type") != "file" or not str(it.get("name", "")).lower().endswith(".txt"):
+            continue
+        name = it["name"]
+        fu = f"https://api.github.com/repos/{owner_repo_n}/contents/{folder_name}/{name}"
+        fr = requests.get(fu, headers=headers, timeout=180)
+        if fr.status_code != 200:
+            print(f"  (aviso) omitido {folder_name}/{name}: HTTP {fr.status_code}")
+            continue
+        j = fr.json()
+        content_bytes = base64.b64decode(j.get("content", ""))
+        content = content_bytes.decode("utf-8", errors="ignore")
+        out.append(
+            {
+                "name": name,
+                "content": content,
+                "folder": folder_name.lower(),
+                "sha": j.get("sha", it.get("sha", "")),
+                "size": int(j.get("size", len(content_bytes)) or 0),
+            }
+        )
+    return out
+
+
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(
         description=(
-            "Regenera el DataFrame de transcripciones desde archivos locales "
-            "y lo sube en partes a GitHub (mismo formato que la app Streamlit)."
+            "Regenera el DataFrame desde .txt (repo privado o local) y lo sube a la carpeta data/ "
+            f"del repo privado (por defecto {TRANSCRIPTS_TXT_REPO_DEFAULT}) con DB_TOKEN."
         )
     )
     parser.add_argument(
         "--repo",
-        required=True,
-        help="URL del repo GitHub (ej: https://github.com/jarconett/c_especiales/ o jarconett/c_especiales)",
+        default=TRANSCRIPTS_TXT_REPO_DEFAULT,
+        help=(
+            "Repo owner/repo donde está la carpeta data/ con el DataFrame serializado "
+            f"(por defecto {TRANSCRIPTS_TXT_REPO_DEFAULT}). Requiere DB_TOKEN con escritura."
+        ),
     )
     parser.add_argument(
         "--data-path",
@@ -229,37 +314,72 @@ def main():
         help="Ruta en el repo donde guardar el DataFrame (por defecto: data)",
     )
     parser.add_argument(
+        "--txt-source",
+        choices=("github", "local"),
+        default="github",
+        help="Origen de los .txt: github (repo privado + DB_TOKEN) o local (--base-dir). Por defecto: github",
+    )
+    parser.add_argument(
+        "--txt-repo",
+        default=TRANSCRIPTS_TXT_REPO_DEFAULT,
+        help=(
+            "Repo owner/repo con carpetas transcripciones/ y spoti/ "
+            f"(por defecto {TRANSCRIPTS_TXT_REPO_DEFAULT}). "
+            "Se puede sobreescribir con env TRANSCRIPTS_TXT_REPO."
+        ),
+    )
+    parser.add_argument(
         "--base-dir",
         default=".",
-        help="Directorio base local donde están las carpetas 'transcripciones' y 'spoti' (por defecto: .)",
+        help="Con --txt-source local: directorio con carpetas transcripciones/ y spoti/",
     )
 
     args = parser.parse_args()
 
-    headers, token = _get_github_headers()
-    if not token:
-        print("ERROR: Debes definir GITHUB_TOKEN en el entorno para subir a GitHub.")
-        return
-
-    base_dir = os.path.abspath(args.base_dir)
-    print(f"Usando base_dir = {base_dir}")
-
-    files_trans = load_local_txts(base_dir, "transcripciones")
-    files_spoti = []
-    for variant in ("spoti", "Spoti", "SPOTI"):
-        files_spoti = load_local_txts(base_dir, variant)
-        if files_spoti:
-            break
-
-    all_files = files_trans + files_spoti
-    if not all_files:
+    _, db_tok = _get_db_token_headers_cli()
+    if not db_tok:
         print(
-            "No se encontraron archivos .txt en las carpetas locales 'transcripciones' ni 'spoti'."
+            "ERROR: define DB_TOKEN en el entorno (lectura de .txt y escritura del DataFrame en el repo privado)."
         )
         return
 
+    if args.txt_source == "github":
+        txt_repo = _transcripts_txt_repo_from_env(args.txt_repo)
+        print(f"Leyendo .txt desde GitHub: {txt_repo}")
+        try:
+            files_trans = load_github_txts(txt_repo, "transcripciones")
+            files_spoti: List[dict] = []
+            for variant in ("spoti", "Spoti", "SPOTI"):
+                files_spoti = load_github_txts(txt_repo, variant)
+                if files_spoti:
+                    break
+        except RuntimeError as e:
+            print(f"ERROR: {e}")
+            return
+    else:
+        base_dir = os.path.abspath(args.base_dir)
+        print(f"Usando base_dir local = {base_dir}")
+        files_trans = load_local_txts(base_dir, "transcripciones")
+        files_spoti = []
+        for variant in ("spoti", "Spoti", "SPOTI"):
+            files_spoti = load_local_txts(base_dir, variant)
+            if files_spoti:
+                break
+
+    all_files = files_trans + files_spoti
+    if not all_files:
+        if args.txt_source == "github":
+            print(
+                "No se encontraron archivos .txt en transcripciones/ ni spoti/ del repo indicado."
+            )
+        else:
+            print(
+                "No se encontraron archivos .txt en las carpetas locales 'transcripciones' ni 'spoti'."
+            )
+        return
+
     print(
-        f"Encontrados {len(all_files)} archivos locales "
+        f"Encontrados {len(all_files)} archivos "
         f"({len(files_trans)} en transcripciones, {len(files_spoti)} en spoti)."
     )
 

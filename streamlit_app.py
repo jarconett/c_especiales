@@ -746,6 +746,99 @@ def _get_github_headers():
     return headers, token
 
 
+# Repo privado con carpetas transcripciones/ y spoti/ (lectura con DB_TOKEN).
+TRANSCRIPTS_TXT_REPO_DEFAULT = "jarconett/dbcesp"
+
+
+def _repo_arg_to_owner_repo(url_or_short: str) -> str:
+    """Convierte https://github.com/o/r/ u o/r en 'o/r'."""
+    s = (url_or_short or "").strip()
+    if not s:
+        return ""
+    if s.count("/") == 1 and "/" in s:
+        return s.replace(".git", "").strip("/")
+    import re as _re
+
+    m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", s)
+    if m:
+        return f"{m.group(1)}/{m.group(2).replace('.git', '')}"
+    return s
+
+
+def _transcripts_txt_repo_url() -> str:
+    """
+    Owner/repo donde están las carpetas transcripciones/ y spoti/.
+    Override: secrets o env TRANSCRIPTS_TXT_REPO (o TRANSCRIPTS_CONTENT_REPO_URL).
+    """
+    try:
+        for key in ("TRANSCRIPTS_TXT_REPO", "TRANSCRIPTS_CONTENT_REPO_URL"):
+            if key in st.secrets:
+                v = _repo_arg_to_owner_repo(str(st.secrets[key]))
+                if v:
+                    return v
+        if "default" in st.secrets and isinstance(st.secrets["default"], dict):
+            d = st.secrets["default"]
+            for key in ("TRANSCRIPTS_TXT_REPO", "TRANSCRIPTS_CONTENT_REPO_URL"):
+                if key in d:
+                    v = _repo_arg_to_owner_repo(str(d[key]))
+                    if v:
+                        return v
+        if hasattr(st.secrets, "get"):
+            v = _repo_arg_to_owner_repo(
+                str(
+                    st.secrets.get("TRANSCRIPTS_TXT_REPO")
+                    or st.secrets.get("TRANSCRIPTS_CONTENT_REPO_URL")
+                    or ""
+                )
+            )
+            if v:
+                return v
+    except Exception:
+        pass
+    env = (
+        os.getenv("TRANSCRIPTS_TXT_REPO", "").strip()
+        or os.getenv("TRANSCRIPTS_CONTENT_REPO_URL", "").strip()
+    )
+    if env:
+        return _repo_arg_to_owner_repo(env)
+    return TRANSCRIPTS_TXT_REPO_DEFAULT
+
+
+def _get_db_token_headers():
+    """Headers para leer el repo privado de transcripciones (DB_TOKEN en secrets/env)."""
+    token = ""
+    try:
+        if "DB_TOKEN" in st.secrets:
+            token = st.secrets["DB_TOKEN"]
+        elif "default" in st.secrets and "DB_TOKEN" in st.secrets["default"]:
+            token = st.secrets["default"]["DB_TOKEN"]
+        elif hasattr(st.secrets, "get"):
+            token = st.secrets.get("DB_TOKEN", "")
+    except Exception:
+        try:
+            token = st.secrets.get("DB_TOKEN", "")
+        except Exception:
+            token = ""
+    if not token:
+        token = os.getenv("DB_TOKEN", "")
+    if token:
+        token = str(token).strip()
+        if token.startswith('"') and token.endswith('"'):
+            token = token[1:-1]
+        if token.startswith("'") and token.endswith("'"):
+            token = token[1:-1]
+        token = token.strip()
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+    return headers, token
+
+
+def _df_storage_session_cache_key() -> str:
+    """Caché en session_state del DataFrame completo (repo privado `data/`), independiente de gh_url."""
+    return f"df_cache_data::{_repo_arg_to_owner_repo(_transcripts_txt_repo_url())}"
+
+
 def _parse_repo_url(repo_url: str) -> tuple[str, str]:
     """Parsea la URL del repositorio y retorna (owner, repo)."""
     import re as _re
@@ -1215,19 +1308,20 @@ def _get_file_sha(files: List[dict]) -> dict:
 # Tamaño máximo por archivo para la API de GitHub (~45 MB en binario; base64 ~33% más)
 _DF_CHUNK_BYTES = 42 * 1024 * 1024
 
-def _save_dataframe_to_github(repo_url: str, df: pd.DataFrame, file_index: dict, path: str = "data") -> tuple[bool, str]:
+def _save_dataframe_to_github(df: pd.DataFrame, file_index: dict, path: str = "data") -> tuple[bool, str]:
     """
-    Guarda el DataFrame serializado y el índice en GitHub.
-    Si el DataFrame es muy grande, lo divide en partes (transcripciones_df_part_0.pkl, ...).
+    Guarda el DataFrame serializado y el índice en el repo privado (jarconett/dbcesp por defecto),
+    carpeta `path` (p. ej. data/). Usa DB_TOKEN. Si el DataFrame es muy grande, divide en partes.
     Retorna (éxito, mensaje_error)
     """
-    owner, repo = _parse_repo_url(repo_url)
+    ts = _transcripts_txt_repo_url()
+    owner, repo = _parse_repo_url(ts if ts.count("/") == 1 else f"https://github.com/{ts}")
     if not owner or not repo:
-        return False, "URL de repositorio no válida"
-    
-    headers, token = _get_github_headers()
+        return False, "URL del repo de datos (privado) no válida"
+
+    headers, token = _get_db_token_headers()
     if not token:
-        return False, "Se requiere GITHUB_TOKEN para guardar el DataFrame"
+        return False, "Se requiere DB_TOKEN para guardar el DataFrame en el repo privado"
     
     try:
         import pickle
@@ -1405,27 +1499,23 @@ def _on_df_time_window_radio_change():
 
 
 @st.cache_data(ttl=72000, max_entries=1, show_spinner=False)  # Cachear por 20 horas, máximo 1 entrada
-def _load_dataframe_from_github(repo_url: str, path: str = "data") -> tuple[pd.DataFrame, dict, str]:
+def _load_dataframe_from_github(path: str = "data") -> tuple[pd.DataFrame, dict, str]:
     """
-    Carga el DataFrame y el índice desde GitHub.
-    Retorna (DataFrame, file_index, mensaje_error)
-    Si hay error, retorna (DataFrame vacío, {}, mensaje_error)
-    
-    NOTA: Esta función está cacheada con @st.cache_data para evitar descargar
-    el DataFrame (17MB) en cada ejecución del script.
-    El caché dura 20 horas ya que los cambios en transcripciones ocurren 1 vez al día.
-    
-    IMPORTANTE: En Streamlit Cloud, el caché puede limpiarse si el servidor se reinicia.
-    Por eso también usamos session_state como respaldo.
+    Carga el DataFrame y el índice desde el repo privado (carpeta `path`, p. ej. data/).
+    Requiere DB_TOKEN. Retorna (DataFrame, file_index, mensaje_error).
+    Cache @st.cache_data ~20 h; session_state como respaldo en la app.
     """
     import time
     start_time = time.time()
-    
-    owner, repo = _parse_repo_url(repo_url)
+
+    ts = _transcripts_txt_repo_url()
+    owner, repo = _parse_repo_url(ts if ts.count("/") == 1 else f"https://github.com/{ts}")
     if not owner or not repo:
-        return pd.DataFrame(), {}, "URL de repositorio no válida"
-    
-    headers, token = _get_github_headers()
+        return pd.DataFrame(), {}, "URL del repo de datos (privado) no válida"
+
+    headers, token = _get_db_token_headers()
+    if not token:
+        return pd.DataFrame(), {}, "Falta DB_TOKEN para cargar el DataFrame desde el repo privado."
     
     try:
         import pickle
@@ -1500,11 +1590,12 @@ def _detect_changes_in_github(repo_url: str, current_file_index: dict, path: str
     Compara el índice actual con los archivos en GitHub para detectar cambios en una carpeta específica.
     Retorna (hay_cambios, nuevo_file_index)
     """
-    owner, repo = _parse_repo_url(repo_url)
+    owner_repo = _transcripts_txt_repo_url()
+    owner, repo = _parse_repo_url(owner_repo if "/" in owner_repo else f"https://github.com/{owner_repo}")
     if not owner or not repo:
         return False, {}  # Si no se puede parsear, asumir que no hay cambios (más seguro)
-    
-    headers, token = _get_github_headers()
+
+    headers, _token = _get_db_token_headers()
     api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
     # Agregar timeout MUY corto para no bloquear la carga (1.5 segundos por carpeta)
     resp = requests.get(api_url, headers=headers, timeout=1.5)
@@ -1588,17 +1679,10 @@ def transcription_files_light(files: List[dict]) -> List[dict]:
 
 
 def clear_github_txt_session_cache(repo_url: str) -> None:
-    """Quita github_cache_* del mismo repo: el contenido ya está en el DataFrame."""
-    import re as _re
-    if not repo_url:
+    """Quita github_cache_* del repo de .txt (privado); el contenido ya está en el DataFrame."""
+    owner_repo = _repo_arg_to_owner_repo(_transcripts_txt_repo_url())
+    if not owner_repo:
         return
-    if repo_url.count("/") == 1 and "/" in repo_url:
-        owner_repo = repo_url.replace(".git", "").strip()
-    else:
-        m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
-        if not m:
-            return
-        owner_repo = f"{m.group(1)}/{m.group(2).replace('.git', '')}"
     prefix = f"github_cache_{owner_repo}_"
     for k in list(st.session_state.keys()):
         if isinstance(k, str) and k.startswith(prefix):
@@ -1621,21 +1705,18 @@ def read_txt_files_from_github(
     time_window_key: str | None = None,
 ) -> tuple[List[dict], str]:
     """
-    Lee archivos .txt desde GitHub.
-    Retorna (lista_de_archivos, mensaje_de_error_o_exito)
+    Lee archivos .txt desde el repo privado de transcripciones (TRANSCRIPTS_TXT_REPO, por defecto jarconett/dbcesp).
+    repo_url se mantiene por compatibilidad con llamadas existentes; no determina el origen de los .txt.
+    Requiere DB_TOKEN en secrets (o env). Retorna (lista_de_archivos, mensaje_de_error_o_exito)
     """
-    import re as _re
+    _ = repo_url  # el origen de .txt es siempre el repo privado configurado
     import time as _time
     from datetime import datetime, timedelta
-    
-    if repo_url.count("/") == 1 and "/" in repo_url:
-        owner_repo = repo_url
-    else:
-        m = _re.match(r"https?://github.com/([^/]+)/([^/]+)", repo_url)
-        if not m:
-            return [], "URL de repo no válida."
-        owner_repo = f"{m.group(1)}/{m.group(2).replace('.git','')}"
-    
+
+    owner_repo = _repo_arg_to_owner_repo(_transcripts_txt_repo_url())
+    if not owner_repo:
+        return [], "No se pudo determinar el repositorio de transcripciones (TRANSCRIPTS_TXT_REPO)."
+
     # Verificar caché (válido por 30 minutos para reducir peticiones)
     # Incluir time_window_key para evitar mezclar resultados filtrados/no filtrados.
     cache_key = f"github_cache_{owner_repo}_{path}_{(time_window_key or 'all')}"
@@ -1646,8 +1727,13 @@ def read_txt_files_from_github(
                 _github_txt_resume_storage_key(owner_repo, path, time_window_key), None
             )
             return cached_data, ""
-    
-    headers, token = _get_github_headers()
+
+    headers, token = _get_db_token_headers()
+    if not token:
+        return [], (
+            "Falta DB_TOKEN en Secrets (Streamlit Cloud) o en la variable de entorno DB_TOKEN. "
+            "Es necesario para leer las carpetas transcripciones/ y spoti/ del repositorio privado."
+        )
     api_url = f"https://api.github.com/repos/{owner_repo}/contents/{path}"
     try:
         resp = requests.get(api_url, headers=headers, timeout=_GITHUB_TIMEOUT_DIR)
@@ -1671,9 +1757,9 @@ def read_txt_files_from_github(
                 if token and not token_being_used:
                     token_status_msg = "\n\n⚠️ PROBLEMA DETECTADO: Tienes un token configurado pero parece que no se está usando correctamente en las peticiones.\nVerifica que el token esté correctamente configurado en los secrets."
                 elif not token:
-                    token_status_msg = "\n\n💡 CONSEJO: Configura un GITHUB_TOKEN en los secrets para tener 5,000 peticiones/hora en lugar de 60."
+                    token_status_msg = "\n\n💡 CONSEJO: Configura DB_TOKEN en los secrets (lectura del repo privado de transcripciones)."
                 elif limit == "60":
-                    token_status_msg = "\n\n⚠️ ADVERTENCIA: El límite es 60, lo que sugiere que el token no se está usando. Verifica que el token esté correctamente configurado."
+                    token_status_msg = "\n\n⚠️ ADVERTENCIA: El límite es 60, lo que sugiere que DB_TOKEN no se está aplicando. Revisa Secrets."
                 
                 reset_info = ""
                 if reset_time:
@@ -1968,7 +2054,7 @@ def force_regenerate_dataframe(
     if progress_cb:
         progress_cb(0.6)
     file_index = _get_file_sha(files)
-    save_success, save_error = _save_dataframe_to_github(repo_url, df, file_index)
+    save_success, save_error = _save_dataframe_to_github(df, file_index)
     if not save_success:
         # No es crítico si falla guardar, pero mostrar advertencia
         error_msg = f"⚠️ DataFrame regenerado pero no se pudo guardar en GitHub: {save_error}"
@@ -2027,7 +2113,7 @@ def load_transcriptions_from_github_optimized(
         return df2, files2, folder_used, status, err
 
     # OPTIMIZACIÓN: Primero verificar session_state (más rápido, persiste en la sesión)
-    cache_key = f"df_cache_{repo_url}"
+    cache_key = _df_storage_session_cache_key()
     if progress_cb:
         progress_cb(0.1)
     if cache_key in st.session_state:
@@ -2041,7 +2127,7 @@ def load_transcriptions_from_github_optimized(
             return _finish(df_cached, files_light, folder_used, "session_cached", "")
     
     # Si no está en session_state, intentar cargar desde GitHub (usará caché de Streamlit si está disponible)
-    df_cached, cached_index, load_error = _load_dataframe_from_github(repo_url)
+    df_cached, cached_index, load_error = _load_dataframe_from_github()
     
     if df_cached.empty or load_error:
         # No hay DataFrame guardado o error al cargar, cargar desde cero
@@ -2061,13 +2147,18 @@ def load_transcriptions_from_github_optimized(
         files_light = transcription_files_light(files)
         del files
         gc.collect()
-        save_success, save_error = _save_dataframe_to_github(repo_url, df, file_index)
+        save_success, save_error = _save_dataframe_to_github(df, file_index)
         if not save_success:
             # No es crítico si falla guardar, solo mostrar advertencia
             pass
-        
+        else:
+            try:
+                _load_dataframe_from_github.clear()
+            except Exception:
+                pass
+
         # Guardar también en session_state como caché adicional
-        cache_key = f"df_cache_{repo_url}"
+        cache_key = _df_storage_session_cache_key()
         st.session_state[cache_key] = {
             'df': df,
             'index': file_index,
@@ -2112,7 +2203,7 @@ def load_transcriptions_from_github_optimized(
             folder_used = "transcripciones"
         
         # Guardar en session_state como caché adicional (útil en Streamlit Cloud)
-        cache_key = f"df_cache_{repo_url}"
+        cache_key = _df_storage_session_cache_key()
         st.session_state[cache_key] = {
             'df': df_cached,
             'index': cached_index,
@@ -2144,13 +2235,18 @@ def load_transcriptions_from_github_optimized(
 
     # Guardar nuevo DataFrame en GitHub
     file_index = _get_file_sha(files)
-    save_success, save_error = _save_dataframe_to_github(repo_url, df, file_index)
+    save_success, save_error = _save_dataframe_to_github(df, file_index)
     if not save_success:
         # No es crítico si falla guardar
         pass
+    else:
+        try:
+            _load_dataframe_from_github.clear()
+        except Exception:
+            pass
 
     # Guardar también en session_state como caché adicional
-    cache_key = f"df_cache_{repo_url}"
+    cache_key = _df_storage_session_cache_key()
     st.session_state[cache_key] = {
         'df': df,
         'index': file_index,
@@ -3022,12 +3118,15 @@ def display_calendar(files_by_date: dict, show_transcripciones: bool = True, sho
                     with st.expander(f"📄 {file_info['name']}", expanded=False):
                         content = file_info.get('content', '')
                         # Si no hay contenido (cargado desde caché), intentar cargarlo bajo demanda
-                        if not content and 'gh_url' in st.session_state:
-                            # Cargar contenido desde GitHub
+                        if not content:
+                            # Cargar contenido bajo demanda desde el repo privado de transcripciones
                             folder = file_info.get('folder', 'transcripciones')
-                            owner, repo = _parse_repo_url(st.session_state['gh_url'])
+                            tr = _transcripts_txt_repo_url()
+                            owner, repo = _parse_repo_url(
+                                tr if tr.count("/") == 1 else f"https://github.com/{tr}"
+                            )
                             if owner and repo:
-                                headers, _ = _get_github_headers()
+                                headers, _ = _get_db_token_headers()
                                 file_api = f"https://api.github.com/repos/{owner}/{repo}/contents/{folder}/{file_info['name']}"
                                 file_resp = requests.get(file_api, headers=headers)
                                 if file_resp.status_code == 200:
@@ -3048,12 +3147,15 @@ def display_calendar(files_by_date: dict, show_transcripciones: bool = True, sho
                     with st.expander(f"📄 {file_info['name']}", expanded=False):
                         content = file_info.get('content', '')
                         # Si no hay contenido (cargado desde caché), intentar cargarlo bajo demanda
-                        if not content and 'gh_url' in st.session_state:
-                            # Cargar contenido desde GitHub
+                        if not content:
+                            # Cargar contenido bajo demanda desde el repo privado de transcripciones
                             folder = file_info.get('folder', 'spoti')
-                            owner, repo = _parse_repo_url(st.session_state['gh_url'])
+                            tr = _transcripts_txt_repo_url()
+                            owner, repo = _parse_repo_url(
+                                tr if tr.count("/") == 1 else f"https://github.com/{tr}"
+                            )
                             if owner and repo:
-                                headers, _ = _get_github_headers()
+                                headers, _ = _get_db_token_headers()
                                 file_api = f"https://api.github.com/repos/{owner}/{repo}/contents/{folder}/{file_info['name']}"
                                 file_resp = requests.get(file_api, headers=headers)
                                 if file_resp.status_code == 200:
@@ -3460,10 +3562,49 @@ if IS_ADMIN:
             else:
                 st.warning("No se encontró GITHUB_TOKEN en los secrets ni en variables de entorno.")
 
+        db_headers, db_token = _get_db_token_headers()
+        db_status = "✅ Configurado" if db_token else "❌ No configurado"
+        tr_repo_disp = _transcripts_txt_repo_url()
+        with st.expander(f"🔐 DB_TOKEN (transcripciones privadas): {db_status}", expanded=False):
+            st.caption(
+                f"Lectura de carpetas `transcripciones/` y `spoti/` desde **{tr_repo_disp}** "
+                "(configurable con `TRANSCRIPTS_TXT_REPO` en secrets o entorno)."
+            )
+            if db_token:
+                prev = f"{db_token[:7]}...{db_token[-4:]}" if len(db_token) > 11 else "***"
+                st.code(f"DB_TOKEN: {prev} (longitud: {len(db_token)} caracteres)")
+                if st.button("🧪 Probar acceso al repo de transcripciones", key="test_db_token"):
+                    o, r = _parse_repo_url(
+                        tr_repo_disp if tr_repo_disp.count("/") == 1 else f"https://github.com/{tr_repo_disp}"
+                    )
+                    test_url = f"https://api.github.com/repos/{o}/{r}/contents/transcripciones"
+                    with st.spinner("Comprobando listado de transcripciones/…"):
+                        try:
+                            trsp = requests.get(test_url, headers=db_headers, timeout=20)
+                            if trsp.status_code == 200:
+                                st.success("✅ DB_TOKEN válido: se puede listar la carpeta transcripciones/.")
+                            elif trsp.status_code == 404:
+                                st.error("404: no existe `transcripciones/` en ese repo o la ruta no coincide.")
+                            elif trsp.status_code in (401, 403):
+                                st.error("401/403: token sin acceso al repo o permisos insuficientes.")
+                            else:
+                                st.warning(f"Código {trsp.status_code}: {trsp.text[:300]}")
+                        except Exception as e:
+                            st.error(f"Error de red: {e}")
+            else:
+                st.warning(
+                    "No se encontró DB_TOKEN. Sin él la app no puede leer el repositorio privado de transcripciones."
+                )
+
 if IS_ADMIN:
     repo_col, path_col = st.columns([2, 1])
     with repo_col:
         gh_url = st.text_input("Repo público GitHub", value="https://github.com/jarconett/c_especiales/")
+        st.caption(
+            "Los .txt y el **DataFrame** precalculado (`data/` en el repo privado) usan **DB_TOKEN**. "
+            "Este campo es el repo **público** para logs y `data/settings.json` (ventana temporal), "
+            f"p. ej. `jarconett/c_especiales`. Origen de transcripciones: `{_transcripts_txt_repo_url()}`."
+        )
     with path_col:
         custom_path = st.text_input(
             "Ruta personalizada (opcional)",
@@ -3548,13 +3689,14 @@ if gh_url:
 # PRIORIDAD: 1) session_state (trans_df/trans_files), 2) caché adicional (df_cache), 3) caché Streamlit, 4) GitHub
 # Restringido: niveles 2–4 solo tras «Cargar los bloques» (regeneración) o bandera _restricted_user_confirmed_load.
 if gh_url:
+    _df_sess_k = _df_storage_session_cache_key()
     # Nivel 1: Si ya tenemos los datos en session_state estándar, no hacer nada (más rápido)
     if 'trans_df' in st.session_state and 'trans_files' in st.session_state:
         df_existing = st.session_state.get('trans_df')
         files_existing = st.session_state.get('trans_files')
         if not df_existing.empty and files_existing:
             # Si el usuario cambió el rango temporal, recalcular la vista desde df_cache (sin redescargar).
-            _cache_k = f"df_cache_{gh_url}"
+            _cache_k = _df_sess_k
             if _cache_k in st.session_state:
                 _tw_cur = _normalize_df_time_window_key(
                     st.session_state.get("df_time_window_saved_key", "season")
@@ -3572,8 +3714,8 @@ if gh_url:
                         st.session_state["trans_files"] = _fv
                         st.session_state["df_time_window_last_used_key"] = _tw_cur
     # Nivel 2: Verificar caché adicional en session_state antes de descargar
-    elif (IS_ADMIN or st.session_state.get("_restricted_user_confirmed_load")) and f"df_cache_{gh_url}" in st.session_state:
-        cache_data = st.session_state[f"df_cache_{gh_url}"]
+    elif (IS_ADMIN or st.session_state.get("_restricted_user_confirmed_load")) and _df_sess_k in st.session_state:
+        cache_data = st.session_state[_df_sess_k]
         df_cached = cache_data.get('df')
         files_cached = cache_data.get('files', [])
         folder_cached = cache_data.get('folder', 'transcripciones')
