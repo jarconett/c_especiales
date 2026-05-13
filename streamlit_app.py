@@ -494,7 +494,7 @@ with col_logout:
         safe_rerun()
 
 with col_title:
-    st.title("💰🔊 A ganar billete 💵 💶 💴")
+    st.title("💰🔊 A ganar billete 💵 💶 💴 v.1.1")
 
 # --- Helper functions: corte de audio con ffmpeg (subprocess) - sin pydub/moviepy, soporta archivos grandes ---
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", r"C:\Users\Javier\Downloads\ffmpeg.exe" if os.name == "nt" else "ffmpeg")
