@@ -105,20 +105,25 @@
       "folder": "transcripciones",
       "size": 11522
     },
-    "13042026 part1.txt": {
-      "sha": "5ee225f2dccd22a150c12b8cdacf852d7a440d03",
+    "12052026 part1.txt": {
+      "sha": "5fedad7b6837725cf2ba9f4590f51c30dad07e24",
       "folder": "transcripciones",
-      "size": 32074
+      "size": 34751
     },
-    "13042026 part2.txt": {
-      "sha": "8e1fcc4cf8db93620efcce97148dceb1e78c45cf",
+    "12052026 part2.txt": {
+      "sha": "0a220ca5a572d4aebcba57dce0f6718587d56ac4",
       "folder": "transcripciones",
-      "size": 31784
+      "size": 34683
     },
-    "13042026 part3.txt": {
-      "sha": "49fb710f584c9d3323858b5e61caf84daf8ae098",
+    "12052026 part3.txt": {
+      "sha": "306a48b3b178c2e7ea9b724b31f20ddec3da198b",
       "folder": "transcripciones",
-      "size": 34638
+      "size": 35125
+    },
+    "12052026 part4.txt": {
+      "sha": "181a7a81cfacab502bb270e59df9a995a4942d6b",
+      "folder": "transcripciones",
+      "size": 10189
     },
     "14042026 part1.txt": {
       "sha": "af0500e5d999b63d3be630e4a01ba52c8501d020",
@@ -211,9 +216,9 @@
       "size": 33648
     },
     "27042026 part2.txt": {
-      "sha": "37ca3ee049bbf5ee6eb5a9a3eb17f719f0d2ab83",
+      "sha": "83e963e10b904a88804310612af3d02a907b8b76",
       "folder": "transcripciones",
-      "size": 34170
+      "size": 34172
     },
     "27042026 part3.txt": {
       "sha": "0f43dc386cebefc22c7d0a79e3907e403e933150",
@@ -285,10 +290,10 @@
       "folder": "spoti",
       "size": 105565
     },
-    "13042026.txt": {
-      "sha": "135a0a2474b0f39994c90e3fbc920f7c9cfb1ac9",
+    "12052026.txt": {
+      "sha": "49bae91ea64d4939036c457cb9f4b84d6d93ce7f",
       "folder": "spoti",
-      "size": 95787
+      "size": 110749
     },
     "21042026.txt": {
       "sha": "788109b8d54db47e91b6ed99e9fbbe44bdb81fde",
@@ -326,8 +331,8 @@
       "size": 110003
     }
   },
-  "timestamp": "2026-05-12T11:03:08.324627+00:00",
-  "total_files": 65,
-  "df_rows": 21519,
+  "timestamp": "2026-05-13T06:11:33.262034+00:00",
+  "total_files": 66,
+  "df_rows": 21826,
   "df_parts": 1
 }
