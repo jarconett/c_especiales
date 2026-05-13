@@ -1461,13 +1461,14 @@ def _save_settings_to_github(repo_url: str, settings: dict, path: str = "data/se
 _DF_TIME_WINDOW_LABEL_TO_KEY = {
     "Último mes": "last_1m",
     "Últimos 2 meses": "last_2m",
-    "Últimos 6 meses": "last_6m",
+    "Últimos 3 meses": "last_3m",
+    "Últimos 4 meses": "last_4m",
     "Última temporada": "season",
 }
 
 _DF_TIME_WINDOW_KEY_TO_LABEL = {v: k for k, v in _DF_TIME_WINDOW_LABEL_TO_KEY.items()}
 
-_DF_TIME_WINDOW_VALID_KEYS = frozenset({"last_1m", "last_2m", "last_6m", "season"})
+_DF_TIME_WINDOW_VALID_KEYS = frozenset({"last_1m", "last_2m", "last_3m", "last_4m", "season"})
 
 
 def _normalize_df_time_window_key(raw) -> str:
@@ -1475,10 +1476,13 @@ def _normalize_df_time_window_key(raw) -> str:
     Convierte lo guardado en session_state / settings a una clave válida.
     Si por error llega la etiqueta en español (p. ej. «Último mes»), mapea a last_1m;
     si no, season (antes apply_time_window caía en temporada completa).
+    last_6m (settings antiguos) se trata como last_3m.
     """
     if raw is None:
         return "season"
     s = str(raw).strip()
+    if s == "last_6m":
+        return "last_3m"
     if s in _DF_TIME_WINDOW_VALID_KEYS:
         return s
     return _DF_TIME_WINDOW_LABEL_TO_KEY.get(s, "season")
@@ -2065,8 +2069,10 @@ def force_regenerate_dataframe(
         _label = "último mes"
     elif time_window == "last_2m":
         _label = "últimos 2 meses"
-    elif time_window == "last_6m":
-        _label = "últimos 6 meses"
+    elif time_window == "last_3m":
+        _label = "últimos 3 meses"
+    elif time_window == "last_4m":
+        _label = "últimos 4 meses"
     else:
         try:
             start, end = _season_date_range_for(datetime.now())
@@ -2708,7 +2714,7 @@ def _season_date_range_for(dt: datetime) -> tuple[datetime, datetime]:
 def filter_files_by_time_window(files: List[dict], window_key: str) -> tuple[List[dict], dict]:
     """
     Filtra archivos según ventana temporal basada en fecha en el nombre.
-    - window_key: "last_1m" | "last_2m" | "last_6m" | "season"
+    - window_key: "last_1m" | "last_2m" | "last_3m" | "last_4m" | "season"
     Retorna (files_filtrados, stats)
     """
     import time as _time
@@ -2723,10 +2729,14 @@ def filter_files_by_time_window(files: List[dict], window_key: str) -> tuple[Lis
         start = now - timedelta(days=60)
         end = now
         window_label = "últimos 2 meses"
-    elif window_key == "last_6m":
-        start = now - timedelta(days=180)
+    elif window_key == "last_3m":
+        start = now - timedelta(days=90)
         end = now
-        window_label = "últimos 6 meses"
+        window_label = "últimos 3 meses"
+    elif window_key == "last_4m":
+        start = now - timedelta(days=120)
+        end = now
+        window_label = "últimos 4 meses"
     else:
         start, end = _season_date_range_for(now)
         window_label = f"temporada {start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')}"
@@ -3633,7 +3643,9 @@ if gh_url:
                 saved_key = str((settings or {}).get("df_time_window", "")).strip()
             except Exception:
                 saved_key = ""
-            if saved_key not in ("last_1m", "last_2m", "last_6m", "season"):
+            if saved_key == "last_6m":
+                saved_key = "last_3m"
+            if saved_key not in ("last_1m", "last_2m", "last_3m", "last_4m", "season"):
                 saved_key = "season"
             st.session_state["df_time_window_saved_key"] = saved_key
         else:
@@ -3642,7 +3654,9 @@ if gh_url:
         _key_to_label = {
             "last_1m": "Último mes",
             "last_2m": "Últimos 2 meses",
-            "last_6m": "Últimos 6 meses",
+            "last_3m": "Últimos 3 meses",
+            "last_4m": "Últimos 4 meses",
+            "last_6m": "Últimos 3 meses",
             "season": "Última temporada",
         }
         if "df_time_window_radio" not in st.session_state:
