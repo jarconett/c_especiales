@@ -314,7 +314,7 @@ def persist_auth_token_to_url_after_login() -> None:
 # -------------------------------
 # Configurar la página una sola vez al inicio
 st.set_page_config(
-    page_title="Audio splitter + Transcriptions search optimizado",
+    page_title="Audio splitter + Transcriptions search optimizado v1.2",
     layout="wide",
     initial_sidebar_state="collapsed",
     page_icon="💵"
@@ -494,7 +494,7 @@ with col_logout:
         safe_rerun()
 
 with col_title:
-    st.title("💰🔊 A ganar billete 💵 💶 💴 v.1.1")
+    st.title("💰🔊 A ganar billete 💵 💶 💴 v.1.2")
 
 # --- Helper functions: corte de audio con ffmpeg (subprocess) - sin pydub/moviepy, soporta archivos grandes ---
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", r"C:\Users\Javier\Downloads\ffmpeg.exe" if os.name == "nt" else "ffmpeg")
